@@ -4,6 +4,7 @@ import { t, themeName, fontLoc } from '../data/i18n';
 import { run, prefs, maxArmor, maxBombs } from '../data/state';
 import { themeFor, difficulty, loopOf, type Theme } from '../data/themes';
 import { tk, setTextureEra } from '../gfx/textures';
+import { CARRIER_RES } from '../gfx/carrier';
 import { Sound } from '../audio/sound';
 import { Pool, Shot, Enemy, Item, EDEF, type EnemyKind, type Behavior, type FireFn } from '../objects/entities';
 import { Player } from '../objects/player';
@@ -264,7 +265,7 @@ export class GameScene extends Phaser.Scene {
   private startTakeoff() {
     this.setPhase('takeoff');
     this.scrollSpeed = 40;
-    this.carrier = this.add.image(W / 2, 440, tk('carrier')).setDepth(D.carrier);
+    this.carrier = this.add.image(W / 2, 440, tk('carrier')).setDepth(D.carrier).setScale(1 / CARRIER_RES);
     const pl = this.player;
     pl.control = false;
     pl.x = W / 2 - 8;
@@ -421,7 +422,7 @@ export class GameScene extends Phaser.Scene {
     this.sub = 'approach';
     this.player.control = false;
     this.clearEnemyShots(false);
-    this.carrier = this.add.image(W / 2, -360, tk('carrier')).setDepth(D.carrier);
+    this.carrier = this.add.image(W / 2, -360, tk('carrier')).setDepth(D.carrier).setScale(1 / CARRIER_RES);
     this.carrierVel = 170;
     Sound.engineStart();
     Sound.engineThrottle(0.7);

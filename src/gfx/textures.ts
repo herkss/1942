@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { Era } from '../data/config';
 import type { Theme, IslandStyle } from '../data/themes';
+import { drawCarrierDetailed, CARRIER_RES, CARRIER_SIZE } from './carrier';
 
 /**
  * All art is painted procedurally with Canvas2D at boot, so the game ships
@@ -122,7 +123,7 @@ function emblem(c: Ctx, x: number, y: number, r: number, side: 'ally' | 'enemy',
 
 // ---------------------------------------------------------------- aircraft
 
-interface PlaneSpec {
+export interface PlaneSpec {
   len: number;
   span: number;
   fuseW: number;
@@ -148,7 +149,7 @@ interface PlaneSpec {
   delta?: boolean;
 }
 
-function drawPlane(c: Ctx, w: number, h: number, s: PlaneSpec) {
+export function drawPlane(c: Ctx, w: number, h: number, s: PlaneSpec) {
   const cx = w / 2;
   const y0 = (h - s.len) / 2;
   const ly = y0 + s.len * s.wingY;
@@ -508,166 +509,6 @@ function turretTex(scene: Phaser.Scene, key: string, size: number, barrels: numb
 
 // ---------------------------------------------------------------- carrier
 
-function drawCarrier(c: Ctx, w: number, h: number, era: Era) {
-  const cx = w / 2;
-  const hull = era === 'ww2' ? '#5d6670' : era === 'modern' ? '#6b7178' : '#2c3342';
-  // hull
-  const g = c.createLinearGradient(0, 0, w, 0);
-  g.addColorStop(0, shade(hull, -0.5));
-  g.addColorStop(0.5, shade(hull, 0.1));
-  g.addColorStop(1, shade(hull, -0.5));
-  c.fillStyle = g;
-  c.beginPath();
-  c.moveTo(cx, 0);
-  c.bezierCurveTo(cx + w * 0.36, h * 0.06, cx + w * 0.4, h * 0.14, cx + w * 0.4, h * 0.26);
-  c.lineTo(cx + w * 0.4, h * 0.95);
-  c.quadraticCurveTo(cx + w * 0.38, h, cx, h);
-  c.quadraticCurveTo(cx - w * 0.38, h, cx - w * 0.4, h * 0.95);
-  c.lineTo(cx - w * 0.4, h * 0.26);
-  c.bezierCurveTo(cx - w * 0.4, h * 0.14, cx - w * 0.36, h * 0.06, cx, 0);
-  c.fill();
-  // flight deck
-  const deck = era === 'ww2' ? '#8b7352' : era === 'modern' ? '#3c4046' : '#1a1f2c';
-  const dl = cx - w * 0.44;
-  const dr = cx + w * 0.44;
-  c.fillStyle = deck;
-  c.beginPath();
-  c.moveTo(cx - w * 0.3, h * 0.04);
-  c.lineTo(cx + w * 0.3, h * 0.04);
-  c.lineTo(dr, h * 0.12);
-  c.lineTo(dr, h * 0.97);
-  c.lineTo(dl, h * 0.97);
-  c.lineTo(dl, h * 0.12);
-  c.closePath();
-  c.fill();
-  if (era === 'modern') {
-    // angled deck extension
-    c.beginPath();
-    c.moveTo(dl, h * 0.45);
-    c.lineTo(dl - w * 0.06, h * 0.5);
-    c.lineTo(dl - w * 0.06, h * 0.97);
-    c.lineTo(dl, h * 0.97);
-    c.fill();
-  }
-  c.save();
-  c.beginPath();
-  c.rect(dl, h * 0.04, dr - dl, h * 0.93);
-  c.clip();
-  if (era === 'ww2') {
-    c.strokeStyle = 'rgba(40,25,10,0.25)';
-    c.lineWidth = 1;
-    for (let x = dl; x < dr; x += 3) {
-      c.beginPath();
-      c.moveTo(x, 0);
-      c.lineTo(x, h);
-      c.stroke();
-    }
-  } else {
-    c.fillStyle = 'rgba(255,255,255,0.03)';
-    for (let y = 0; y < h; y += 24) c.fillRect(dl, y, dr - dl, 12);
-  }
-  c.restore();
-  // edge lines
-  c.strokeStyle = era === 'future' ? '#36e0ff' : '#e8e8e8';
-  c.lineWidth = 2;
-  c.setLineDash([]);
-  c.strokeRect(dl + 4, h * 0.08, dr - dl - 8, h * 0.88);
-  // centreline
-  const rx = cx - 8;
-  c.strokeStyle = era === 'ww2' ? '#f0f0f0' : era === 'modern' ? '#ffd23a' : '#36e0ff';
-  c.lineWidth = 3;
-  c.setLineDash([18, 14]);
-  c.beginPath();
-  c.moveTo(rx, h * 0.07);
-  c.lineTo(rx, h * 0.96);
-  c.stroke();
-  c.setLineDash([]);
-  if (era === 'future') {
-    for (let y = h * 0.1; y < h * 0.95; y += 26) {
-      glowCircle(c, rx - 30, y, 4, [[0, '#bff'], [1, 'rgba(0,200,255,0)']]);
-      glowCircle(c, rx + 30, y, 4, [[0, '#bff'], [1, 'rgba(0,200,255,0)']]);
-    }
-  }
-  // arresting wires
-  c.strokeStyle = 'rgba(30,30,30,0.9)';
-  c.lineWidth = 1.5;
-  for (let i = 0; i < 4; i++) {
-    const y = h * 0.78 + i * 12;
-    c.beginPath();
-    c.moveTo(rx - 34, y);
-    c.lineTo(rx + 34, y);
-    c.stroke();
-  }
-  // elevators
-  c.fillStyle = 'rgba(0,0,0,0.18)';
-  c.fillRect(rx - 26, h * 0.3, 52, 46);
-  c.fillRect(rx - 26, h * 0.6, 52, 46);
-  // deck number
-  c.fillStyle = era === 'future' ? '#36e0ff' : '#f2f2f2';
-  c.font = 'bold 34px "Black Ops One", sans-serif';
-  c.textAlign = 'center';
-  c.fillText(era === 'ww2' ? '07' : era === 'modern' ? '77' : 'X1', rx, h * 0.93);
-  // vertical deck lettering, weathered white paint
-  c.save();
-  c.translate(dl + 24, h * 0.56);
-  c.rotate(-Math.PI / 2);
-  c.font = 'bold 27px "Black Ops One", sans-serif';
-  c.textAlign = 'center';
-  c.textBaseline = 'middle';
-  c.fillStyle = era === 'future' ? 'rgba(220,250,255,0.9)' : 'rgba(245,245,240,0.88)';
-  if (era === 'future') {
-    c.shadowColor = '#36e0ff';
-    c.shadowBlur = 6;
-  }
-  c.fillText('www.herks.co.kr', 0, 0);
-  c.shadowBlur = 0;
-  // scuffs: knock random specks out of the paint
-  c.globalCompositeOperation = 'source-atop';
-  const wr = rng(era.length * 101);
-  for (let i = 0; i < 160; i++) {
-    c.fillStyle = `rgba(${era === 'ww2' ? '120,95,60' : '50,54,60'},${0.3 + wr() * 0.5})`;
-    c.fillRect((wr() - 0.5) * 240, (wr() - 0.5) * 30, 1 + wr() * 3, 1 + wr() * 2);
-  }
-  c.restore();
-  // island (starboard)
-  const ix = dr - 22;
-  const iy = h * 0.42;
-  const ig = c.createLinearGradient(ix - 14, 0, ix + 14, 0);
-  ig.addColorStop(0, shade(hull, -0.2));
-  ig.addColorStop(1, shade(hull, 0.35));
-  c.fillStyle = ig;
-  c.fillRect(ix - 13, iy, 26, h * 0.16);
-  c.fillStyle = shade(hull, 0.45);
-  c.fillRect(ix - 8, iy + 10, 16, h * 0.06);
-  c.fillStyle = '#222';
-  c.beginPath();
-  c.ellipse(ix, iy + h * 0.12, 7, 11, 0, 0, Math.PI * 2);
-  c.fill();
-  if (era !== 'ww2') {
-    c.strokeStyle = '#aaa';
-    c.lineWidth = 1;
-    c.beginPath();
-    c.arc(ix, iy + 6, 9, 0, Math.PI * 2);
-    c.stroke();
-  }
-  // parked aircraft silhouettes near bow
-  c.fillStyle = 'rgba(40,50,60,0.75)';
-  for (let i = 0; i < 4; i++) {
-    const px = dl + 18 + (i % 2) * 22;
-    const py = h * 0.12 + Math.floor(i / 2) * 36;
-    c.beginPath();
-    c.moveTo(px, py);
-    c.lineTo(px + 12, py + 12);
-    c.lineTo(px + 2, py + 12);
-    c.lineTo(px + 2, py + 26);
-    c.lineTo(px - 2, py + 26);
-    c.lineTo(px - 2, py + 12);
-    c.lineTo(px - 12, py + 12);
-    c.closePath();
-    c.fill();
-  }
-}
-
 // ---------------------------------------------------------------- bosses
 
 function drawFortress(c: Ctx, w: number, h: number, era: Era) {
@@ -924,7 +765,10 @@ export function buildEraTextures(scene: Phaser.Scene, era: Era) {
   turretTex(scene, sfx('turret_big'), 40, 3, era, true);
 
   // --- carrier (bow up)
-  make(scene, sfx('carrier'), 200, 680, (c, w, h) => drawCarrier(c, w, h, era));
+  make(scene, sfx('carrier'), CARRIER_SIZE.w * CARRIER_RES, CARRIER_SIZE.h * CARRIER_RES, (c) => {
+    c.scale(CARRIER_RES, CARRIER_RES);
+    drawCarrierDetailed(c, era);
+  });
 
   // --- bosses
   const bb = ww2
