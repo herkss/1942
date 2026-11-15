@@ -457,9 +457,9 @@ export class Sound {
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.85;
     this.sfxBus = ctx.createGain();
-    this.sfxBus.gain.value = 0.7;
+    this.sfxBus.gain.value = 0.85;
     this.musicBus = ctx.createGain();
-    this.musicBus.gain.value = 0.42;
+    this.musicBus.gain.value = 0.32;
     this.sfxBus.connect(this.master);
     this.musicBus.connect(this.master);
     this.master.connect(comp).connect(ctx.destination);
