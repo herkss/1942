@@ -1,0 +1,10 @@
+{
+  "name": "STEEL WINGS - Carrier Strike",
+  "short_name": "STEEL WINGS",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#05101c",
+  "theme_color": "#05101c",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
