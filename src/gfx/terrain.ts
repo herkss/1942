@@ -419,4 +419,122 @@ export function buildLandUnitTextures(scene: Phaser.Scene, era: Era) {
     c.fillRect(0, 0, w, h);
     c.globalCompositeOperation = 'source-over';
   });
+
+  // --- infantry & support units ------------------------------------------
+  const soldier = (c: Ctx, x: number, y: number, rot: number, gun = true) => {
+    const body = era === 'ww2' ? '#7a6a40' : era === 'modern' ? '#5e6444' : '#3a3e52';
+    const helm = era === 'ww2' ? '#8a7a4a' : era === 'modern' ? '#4e5438' : '#2a2e3e';
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    c.fillStyle = 'rgba(0,0,0,0.3)';
+    c.beginPath();
+    c.ellipse(1.5, 2, 6, 4, 0, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = body;
+    c.beginPath();
+    c.ellipse(0, 0, 6, 3.8, 0, 0, Math.PI * 2);
+    c.fill();
+    if (gun) {
+      c.fillStyle = '#222';
+      c.fillRect(1, 2, 2, 9);
+    }
+    c.fillStyle = helm;
+    c.beginPath();
+    c.arc(0, 0, 3.4, 0, Math.PI * 2);
+    c.fill();
+    if (era === 'future') glowCircle(c, 0, 2, 2, [[0, '#7ff'], [1, 'rgba(0,255,255,0)']]);
+    c.restore();
+  };
+
+  make(scene, s('en_infantry'), 70, 56, (c) => {
+    const pts: [number, number][] = [[18, 14], [35, 10], [52, 15], [24, 32], [44, 30], [35, 46]];
+    // scattered foxhole / sandbags
+    c.fillStyle = era === 'future' ? 'rgba(60,60,80,0.5)' : 'rgba(120,100,60,0.45)';
+    c.beginPath();
+    c.ellipse(35, 28, 32, 24, 0, 0, Math.PI * 2);
+    c.fill();
+    pts.forEach(([x, y], i) => soldier(c, x, y, (i % 2 ? 0.2 : -0.2) + Math.PI, true));
+  });
+
+  make(scene, s('en_aagun'), 64, 64, (c, w) => {
+    const cx = w / 2;
+    c.fillStyle = 'rgba(0,0,0,0.3)';
+    c.beginPath();
+    c.arc(cx + 2, cx + 3, 24, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = era === 'future' ? '#4a4e66' : '#9a8a60';
+    c.lineWidth = 7;
+    c.beginPath();
+    c.arc(cx, cx, 22, 0.4, Math.PI * 2 - 0.4);
+    c.stroke();
+    c.fillStyle = '#3a3a34';
+    c.beginPath();
+    c.arc(cx, cx, 9, 0, Math.PI * 2);
+    c.fill();
+    soldier(c, cx - 14, cx + 6, Math.PI * 0.8, false);
+    soldier(c, cx + 14, cx + 8, -Math.PI * 0.8, false);
+    soldier(c, cx, cx + 17, Math.PI, false);
+  });
+
+  make(scene, s('en_truck'), 34, 64, (c, w, h) => {
+    c.translate(w / 2, h / 2);
+    c.rotate(Math.PI);
+    c.translate(-w / 2, -h / 2);
+    const col = era === 'ww2' ? '#6a6440' : era === 'modern' ? '#5a5e46' : '#363a4c';
+    c.fillStyle = '#1a1a1a';
+    for (const y of [12, 44, 52]) {
+      c.fillRect(2, y, 5, 8);
+      c.fillRect(w - 7, y, 5, 8);
+    }
+    c.fillStyle = shade(col, 0.1);
+    c.fillRect(5, 4, w - 10, 18); // cab
+    c.fillStyle = '#9ab8c8';
+    c.fillRect(8, 6, w - 16, 5);
+    c.fillStyle = shade(col, -0.15);
+    c.fillRect(4, 24, w - 8, h - 28); // canvas cargo
+    c.strokeStyle = 'rgba(0,0,0,0.3)';
+    for (let y = 30; y < h - 6; y += 7) {
+      c.beginPath();
+      c.moveTo(4, y);
+      c.lineTo(w - 4, y);
+      c.stroke();
+    }
+  });
+
+  make(scene, s('en_sam'), 44, 70, (c, w, h) => {
+    c.translate(w / 2, h / 2);
+    c.rotate(Math.PI);
+    c.translate(-w / 2, -h / 2);
+    const col = era === 'ww2' ? '#6a6440' : era === 'modern' ? '#5a6050' : '#363a4c';
+    c.fillStyle = '#1a1a1a';
+    for (const y of [10, 30, 50]) {
+      c.fillRect(2, y, 6, 10);
+      c.fillRect(w - 8, y, 6, 10);
+    }
+    c.fillStyle = shade(col, 0.15);
+    c.fillRect(6, 2, w - 12, 16);
+    c.fillStyle = col;
+    c.fillRect(5, 20, w - 10, h - 24);
+    c.fillStyle = 'rgba(0,0,0,0.3)';
+    c.beginPath();
+    c.arc(w / 2, h * 0.62, 12, 0, Math.PI * 2);
+    c.fill();
+  });
+  // rotating launcher rack (tubes point up)
+  make(scene, s('sam_rack'), 30, 40, (c, w) => {
+    const cx = w / 2;
+    for (const dx of [-7, 7]) {
+      c.fillStyle = era === 'future' ? '#5a5e78' : '#7a7e6a';
+      c.fillRect(cx + dx - 4, 2, 8, 30);
+      c.fillStyle = '#c03020';
+      c.beginPath();
+      c.arc(cx + dx, 4, 3, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.fillStyle = '#333';
+    c.beginPath();
+    c.arc(cx, 28, 8, 0, Math.PI * 2);
+    c.fill();
+  });
 }

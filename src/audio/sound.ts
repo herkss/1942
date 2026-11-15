@@ -673,6 +673,16 @@ export class Sound {
           this.hiss(1.2, 0.3, 'bandpass', 2000, 600, 0.6, 2);
         }
         break;
+      case 'samLaunch':
+        // lock-on warning beeps + launch whoosh
+        for (let i = 0; i < 3; i++) this.tone('square', 1760, 1760, 0.05, 0.06, i * 0.09);
+        this.hiss(0.8, 0.25, 'bandpass', 500, 2600, 0.25, 1.5);
+        break;
+      case 'siren':
+        // dive-bomber siren
+        this.tone('sawtooth', 500, 1300, 1.4, 0.05);
+        this.tone('sine', 520, 1350, 1.4, 0.05);
+        break;
       case 'tick':
         this.tone('square', 1500, 1500, 0.03, 0.04);
         break;

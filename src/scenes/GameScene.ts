@@ -10,7 +10,7 @@ import { Player } from '../objects/player';
 import { Boss } from '../objects/boss';
 import { Fx } from '../systems/fx';
 import { Hud } from '../systems/hud';
-import { Director } from '../systems/director';
+import { Director, homing } from '../systems/director';
 import { World } from '../systems/world';
 import { STAGE_STYLES, BOSS_STYLES, MISC_STYLES } from '../audio/styles';
 
@@ -492,6 +492,8 @@ export class GameScene extends Phaser.Scene {
     const credits = Math.floor(run.stageScore / 40) + 250 * run.stage;
     run.credits += credits;
     prefs.setHi(run.era, run.score);
+    // stage-clear reward: two power attacks (SPACE / X), allowed beyond the bay limit
+    run.bombs += 2;
     if (run.stage % 10 === 0) {
       run.lives++;
       this.time.delayedCall(2400, () => {
@@ -501,7 +503,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const add = this.add;
-    const bg = add.rectangle(W / 2, H / 2, W - 40, 380, 0x05101c, 0.86).setStrokeStyle(2, 0x6ab0ff, 0.8).setDepth(D.banner);
+    const bg = add.rectangle(W / 2, H / 2 + 10, W - 40, 420, 0x05101c, 0.86).setStrokeStyle(2, 0x6ab0ff, 0.8).setDepth(D.banner);
     this.resultPanel.push(bg);
     const lines: [string, string][] = [
       [t('rKills'), `${kills}`],
@@ -509,6 +511,7 @@ export class GameScene extends Phaser.Scene {
       [t('rClear'), `+${clearBonus.toLocaleString()}`],
       [t('rPerfect'), perfect ? `+${perfect.toLocaleString()}` : '—'],
       [t('rCredits'), `+${credits.toLocaleString()} CR`],
+      [t('rBomb'), `+2  (${run.bombs})`],
       [t('rTotal'), run.score.toLocaleString()],
     ];
     const title = add
@@ -531,7 +534,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(300 + lines.length * 280 + 300, () => {
       this.resultReady = true;
       const tip = add
-        .text(W / 2, H / 2 + 165, this.sys.game.device.input.touch ? t('rTapHangar') : t('rEnterHangar'), { fontFamily: fontLoc(), fontSize: '17px', color: '#ffffff' })
+        .text(W / 2, H / 2 + 185, this.sys.game.device.input.touch ? t('rTapHangar') : t('rEnterHangar'), { fontFamily: fontLoc(), fontSize: '17px', color: '#ffffff' })
         .setOrigin(0.5)
         .setDepth(D.banner);
       this.tweens.add({ targets: tip, alpha: 0.3, yoyo: true, repeat: -1, duration: 500 });
@@ -570,11 +573,11 @@ export class GameScene extends Phaser.Scene {
       if (!e.shadow) e.shadow = this.add.image(0, 0, 'px');
       e.shadow.setTexture(tk(def.tex) + '_sh').setDepth(D.shadow).setVisible(true).setScale(0.85);
     } else e.shadow?.setVisible(false);
-    const mounts = kind === 'gunboat' || kind === 'tank' ? [-6] : kind === 'destroyer' ? [-49, 49] : kind === 'flak' ? [0] : [];
+    const mounts = kind === 'gunboat' || kind === 'tank' ? [-6] : kind === 'destroyer' ? [-49, 49] : kind === 'flak' || kind === 'aagun' ? [0] : kind === 'sam' ? [6] : [];
     while (e.turrets.length < mounts.length) e.turrets.push({ img: this.add.image(0, 0, tk('turret')), ox: 0, oy: 0 });
     e.turrets.forEach((tm, i) => {
       const on = i < mounts.length;
-      tm.img.setVisible(on).setActive(on).setTexture(tk(kind === 'flak' ? 'turret_big' : 'turret')).setDepth(D.ground + 1);
+      tm.img.setVisible(on).setActive(on).setTexture(tk(kind === 'flak' ? 'turret_big' : kind === 'sam' ? 'sam_rack' : 'turret')).setDepth(D.ground + 1);
       tm.oy = on ? mounts[i] : 0;
     });
     return e;
@@ -634,6 +637,21 @@ export class GameScene extends Phaser.Scene {
         return [(e) => e.turrets[0] && this.fan(e.turrets[0].img.x, e.turrets[0].img.y, 1, 0, 190 * bs, 'eb_orb'), 2.2];
       case 'flak':
         return [(e) => this.fan(e.x, e.y, 3 + ex, 26, 230 * bs, 'eb_needle'), 1.7];
+      case 'sam':
+        return [(e) => this.launchMissile(e.turrets[0]?.img.x ?? e.x, e.turrets[0]?.img.y ?? e.y), 3.4];
+      case 'infantry':
+        return [
+          (e) => {
+            for (let i = 0; i < 3; i++) this.fan(e.x + Phaser.Math.Between(-18, 18), e.y + Phaser.Math.Between(-12, 12), 1, 0, 165 * bs, 'eb_orb');
+          },
+          1.7,
+        ];
+      case 'aagun':
+        return [(e) => this.stream(e, 5 + ex, 0.08, 250 * bs, 'eb_needle'), 2.3];
+      case 'gunship':
+        if (run.era === 'modern') return [(e) => this.stream(e, 6 + ex, 0.09, 230 * bs, 'eb_orb'), 2.2];
+        if (run.era === 'future') return [(e) => this.ring(e.x, e.y, 6 + ex, 150 * bs, e.t, 'eb_blue'), 1.8];
+        return [(e) => this.fan(e.x, e.y, 1, 0, 200 * bs, 'eb_orb'), 2.4];
       case 'destroyer':
         return [
           (e) => {
@@ -673,6 +691,37 @@ export class GameScene extends Phaser.Scene {
         if (this.phase === 'combat' || this.phase === 'boss') this.fan(x, y, 1, 0, speed, tex);
       });
     }
+  }
+
+  /** Fire `n` shots from an enemy's current position (follows it as it moves). */
+  stream(e: Enemy, n: number, interval: number, speed: number, tex = 'eb_orb') {
+    for (let i = 0; i < n; i++) {
+      this.time.delayedCall(i * interval * 1000, () => {
+        if (e.active && !e.dead && (this.phase === 'combat' || this.phase === 'boss')) this.fan(e.x, e.y + 10, 1, 0, speed, tex);
+      });
+    }
+  }
+
+  /** Straight-down bomb drop (dive bombers). */
+  dropBombs(x: number, y: number, n: number) {
+    for (let i = 0; i < n; i++) {
+      this.time.delayedCall(i * 140, () => {
+        const b = this.eShot(x + (i - (n - 1) / 2) * 14, y, Math.PI / 2, 120 * this.diff.bulletSpeed, 'eb_big');
+        b.setScale(0.8);
+      });
+    }
+  }
+
+  /** Surface-to-air guided missile: a shootable air enemy that homes for a few seconds. */
+  launchMissile(x: number, y: number) {
+    const m = this.spawnEnemy('missile', x, y, homing(this, 140 * this.diff.bulletSpeed, 360, 300 * this.diff.bulletSpeed, 2.4, 2.8));
+    m.data2.missile = 1;
+    m.rotation = Phaser.Math.Angle.Between(x, y, this.player.x, this.player.y) - Math.PI / 2;
+    m.data2.h = m.rotation + Math.PI / 2;
+    m.entered = true;
+    Sound.sfx('samLaunch');
+    this.fx.smokePuff(x, y, 3);
+    return m;
   }
 
   spawnPShot(tex: string, x: number, y: number, angle: number, speed: number, r: number, dmg: number) {
@@ -787,6 +836,7 @@ export class GameScene extends Phaser.Scene {
         tm.img.setPosition(e.x + tm.ox, e.y + tm.oy);
         tm.img.rotation = Phaser.Math.Angle.Between(tm.img.x, tm.img.y, pl.x, pl.y) + Math.PI / 2;
       }
+      if (e.data2.missile && Math.random() < 0.7) this.fx.smokePuff(e.x - Math.cos(e.data2.h) * 14, e.y - Math.sin(e.data2.h) * 14, 1);
       if (!e.air && !e.owner && Math.random() < 0.25 && !this.world.isLandAt(e.y)) this.fx.wake(e.x + Phaser.Math.Between(-e.hw, e.hw), e.y - e.hh, 1);
       if (e.hp < e.maxHp * 0.4 && e.maxHp > 8 && Math.random() < 0.25) this.fx.smokePuff(e.x + Phaser.Math.Between(-e.hw, e.hw) * 0.5, e.y, 1);
 
@@ -1025,10 +1075,21 @@ export class GameScene extends Phaser.Scene {
       case 'bomber':
         this.spawnItem(pick(['P', 'B', 'R', 'S']), e.x, e.y);
         break;
+      case 'truck':
+        if (r < 0.55) this.spawnItem(pick(['P', 'B', 'R', 'S', 'medal']), e.x, e.y);
+        break;
+      case 'missile':
+        break;
+      case 'gunship':
+        if (r < 0.2) this.spawnItem(pick(['P', 'medal', 'R']), e.x, e.y);
+        break;
       case 'gunboat':
       case 'destroyer':
       case 'tank':
       case 'flak':
+      case 'sam':
+      case 'aagun':
+      case 'infantry':
         if (r < 0.22) this.spawnItem(pick(['P', 'R', 'B', 'medal']), e.x, e.y);
         break;
       case 'part':

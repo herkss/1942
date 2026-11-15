@@ -84,6 +84,7 @@ const S = {
   rPerfect: { en: 'No-damage bonus', ko: '무피격 보너스', ja: 'ノーダメージボーナス' },
   rCredits: { en: 'Credits earned', ko: '획득 크레딧', ja: '獲得クレジット' },
   rTotal: { en: 'Total score', ko: '총 점수', ja: '総スコア' },
+  rBomb: { en: 'Power attack (SPACE)', ko: '파워 공격 (SPACE)', ja: 'パワー攻撃 (SPACE)' },
   rTapHangar: { en: 'Tap for hangar', ko: '터치하여 격납고로', ja: 'タップで格納庫へ' },
   rEnterHangar: { en: 'ENTER — to hangar', ko: 'ENTER — 격납고로', ja: 'ENTER — 格納庫へ' },
 

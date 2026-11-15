@@ -110,7 +110,7 @@ export class Hud {
       g.strokeRect(10, 58, ma * 16, 11);
     }
     // bombs
-    const mb = maxBombs();
+    const mb = Math.max(maxBombs(), run.bombs);
     for (let i = 0; i < mb; i++) {
       g.fillStyle(i < run.bombs ? 0xb060ff : 0x302040, 1);
       g.fillCircle(18 + i * 15, 80, 5);

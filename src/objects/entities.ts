@@ -77,6 +77,12 @@ export type EnemyKind =
   | 'destroyer'
   | 'tank'
   | 'flak'
+  | 'sam'
+  | 'infantry'
+  | 'aagun'
+  | 'truck'
+  | 'missile'
+  | 'gunship'
   | 'part'
   | 'core';
 
@@ -102,6 +108,12 @@ export const EDEF: Record<Exclude<EnemyKind, 'part' | 'core'>, EnemyDef> = {
   destroyer: { tex: 'en_destroyer', hp: 60, hw: 24, hh: 82, score: 2500, od: 12, air: false, boom: 'l' },
   tank: { tex: 'en_tank', hp: 12, hw: 17, hh: 24, score: 500, od: 4, air: false, boom: 'm' },
   flak: { tex: 'en_flak', hp: 30, hw: 26, hh: 26, score: 1200, od: 8, air: false, boom: 'm' },
+  sam: { tex: 'en_sam', hp: 22, hw: 20, hh: 32, score: 1500, od: 8, air: false, boom: 'm' },
+  infantry: { tex: 'en_infantry', hp: 6, hw: 30, hh: 24, score: 400, od: 3, air: false, boom: 's' },
+  aagun: { tex: 'en_aagun', hp: 16, hw: 24, hh: 24, score: 900, od: 6, air: false, boom: 'm' },
+  truck: { tex: 'en_truck', hp: 8, hw: 15, hh: 30, score: 500, od: 3, air: false, boom: 'm' },
+  missile: { tex: 'en_missile', hp: 1.5, hw: 6, hh: 15, score: 100, od: 1, air: true, boom: 's' },
+  gunship: { tex: 'en_gunship', hp: 14, hw: 26, hh: 24, score: 1000, od: 7, air: true, boom: 'm' },
 };
 
 export type Behavior = (e: Enemy, dt: number) => void;

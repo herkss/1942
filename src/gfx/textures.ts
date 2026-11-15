@@ -93,6 +93,16 @@ function emblem(c: Ctx, x: number, y: number, r: number, side: 'ally' | 'enemy',
     c.lineTo(x - r * 0.7, y + r * 0.45);
     c.closePath();
     c.fill();
+  } else if (era === 'ww2') {
+    // WWII enemy: Imperial Japanese hinomaru roundel with white surround
+    c.fillStyle = '#f2f2ee';
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#c4161c';
+    c.beginPath();
+    c.arc(x, y, r * 0.78, 0, Math.PI * 2);
+    c.fill();
   } else {
     c.fillStyle = era === 'future' ? '#ff2a6a' : '#b3121b';
     c.beginPath();
@@ -792,6 +802,74 @@ export function buildEraTextures(scene: Phaser.Scene, era: Era) {
         : { len: 46, span: 46, fuseW: 10, wingY: 0.28, chord: 26, tipChord: 6, sweep: 22, tailSpan: 0, tailChord: 0, body, wing, canopy: '#ff70c0', accent, jet: 1, glow: eGlow, delta: true, side: 'enemy', era };
   planeTex(scene, sfx('en_fighter'), 56, 56, small(eBody, eWing), true);
   planeTex(scene, sfx('en_red'), 56, 56, small('#b8322a', '#c43a30', '#ffd040'), true);
+  // era gunship: WWII dive bomber / modern attack helicopter / future drone
+  if (ww2) {
+    planeTex(scene, sfx('en_gunship'), 70, 64, { len: 50, span: 62, fuseW: 10, wingY: 0.34, chord: 15, tipChord: 9, sweep: 4, tailSpan: 22, tailChord: 8, body: '#6a6a50', wing: '#72744e', canopy: '#8ab0c0', accent: '#d8d0b0', noseProp: true, side: 'enemy', era, stripe: '#f0e8d0' }, true);
+  } else {
+    make(scene, sfx('en_gunship'), 90, 90, (c, w, h) => {
+      const cx = w / 2;
+      const cy = h / 2;
+      if (era === 'modern') {
+        flipV(c, w, h);
+        c.fillStyle = '#4a4e3e';
+        c.fillRect(cx - 2, cy + 6, 4, 38); // tail boom
+        c.fillRect(cx - 9, cy + 40, 18, 4); // tail rotor
+        const g = c.createLinearGradient(cx - 9, 0, cx + 9, 0);
+        g.addColorStop(0, '#2e3226');
+        g.addColorStop(0.5, '#6a7058');
+        g.addColorStop(1, '#2e3226');
+        c.fillStyle = g;
+        c.beginPath();
+        c.ellipse(cx, cy - 4, 9, 20, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#30404a';
+        c.fillRect(cx - 14, cy - 2, 28, 4); // stub wings
+        c.fillStyle = '#d0a040';
+        c.beginPath();
+        c.ellipse(cx, cy - 14, 4, 6, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = 'rgba(200,210,220,0.22)';
+        c.beginPath();
+        c.arc(cx, cy - 2, 40, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = 'rgba(255,255,255,0.3)';
+        c.stroke();
+      } else {
+        glowCircle(c, cx, cy, 40, [[0, 'rgba(255,60,160,0.35)'], [1, 'rgba(255,60,160,0)']]);
+        const g = c.createRadialGradient(cx - 8, cy - 8, 3, cx, cy, 26);
+        g.addColorStop(0, '#6a5a80');
+        g.addColorStop(1, '#1e1828');
+        c.fillStyle = g;
+        c.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          c.lineTo(cx + Math.cos(a) * 26, cy + Math.sin(a) * 26);
+        }
+        c.closePath();
+        c.fill();
+        glowCircle(c, cx, cy, 10, [[0, '#ffffff'], [0.4, '#ff3aa0'], [1, 'rgba(255,0,120,0)']]);
+      }
+    });
+    shadowOf(scene, sfx('en_gunship'), fut ? 0 : 0.38);
+  }
+  // enemy guided missile (nose down)
+  make(scene, sfx('en_missile'), 16, 40, (c, w, h) => {
+    flipV(c, w, h);
+    const cx = w / 2;
+    c.fillStyle = fut ? '#c0b0ff' : '#e8e8e0';
+    c.fillRect(cx - 3, 4, 6, h - 14);
+    c.fillStyle = '#c03020';
+    c.beginPath();
+    c.moveTo(cx - 3, 6);
+    c.lineTo(cx, 0);
+    c.lineTo(cx + 3, 6);
+    c.fill();
+    c.fillStyle = '#555';
+    c.fillRect(cx - 7, h - 16, 14, 4);
+    c.fillRect(cx - 6, 12, 12, 2);
+    glowCircle(c, cx, h - 7, 7, [[0, '#ffffff'], [0.4, fut ? '#ff60e0' : '#ffb030'], [1, 'rgba(255,60,0,0)']]);
+  });
+  shadowOf(scene, sfx('en_missile'), fut ? 0 : 0.3);
   planeTex(scene, sfx('en_ace'), 60, 60, { ...small('#222222', '#2c2c2c', '#e02020'), len: 46, span: 54, stripe: '#e02020' }, true);
   planeTex(
     scene,

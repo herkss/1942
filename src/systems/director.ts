@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { W, H } from '../data/config';
+import { run } from '../data/state';
+import { Sound } from '../audio/sound';
 import { themeFor, THEMES } from '../data/themes';
 import { Squad, type Behavior, type Enemy } from '../objects/entities';
 import { t } from '../data/i18n';
@@ -75,6 +77,126 @@ export const ground =
   (e, dt) => {
     e.x += vx * dt;
     e.y += (scene.scrollSpeed + vy) * dt;
+  };
+
+/** Guided missile: accelerates and steers toward the player for `guide` seconds. */
+export const homing =
+  (scene: GameScene, v0: number, accel: number, vmax: number, turn: number, guide: number): Behavior =>
+  (e, dt) => {
+    e.data2.v = Math.min(vmax, (e.data2.v ?? v0) + accel * dt);
+    if (e.t < guide && scene.player.alive) {
+      const want = Phaser.Math.Angle.Between(e.x, e.y, scene.player.x, scene.player.y);
+      e.data2.h = Phaser.Math.Angle.RotateTo(e.data2.h, want, turn * dt);
+    }
+    e.x += Math.cos(e.data2.h) * e.data2.v * dt;
+    e.y += Math.sin(e.data2.h) * e.data2.v * dt;
+    e.rotation = e.data2.h - HALF_PI;
+  };
+
+/** Vertical loop: circles while the sprite swells (climbing toward the camera) then dives on. */
+export const loop =
+  (dir: number, speed = 270): Behavior =>
+  (e, dt) => {
+    if (e.data2.h === undefined) e.data2.h = HALF_PI;
+    const t0 = 0.6;
+    const dur = (Math.PI * 2) / 3.4;
+    if (e.t > t0 && e.t < t0 + dur) {
+      e.data2.h += 3.4 * dir * dt;
+      const p = (e.t - t0) / dur;
+      e.setScale(1 + Math.sin(p * Math.PI) * 0.45);
+      if (e.shadow) e.shadow.setScale(0.85 * (1 - Math.sin(p * Math.PI) * 0.3));
+    } else e.setScale(1);
+    e.x += Math.cos(e.data2.h) * speed * dt;
+    e.y += Math.sin(e.data2.h) * speed * dt;
+    e.rotation = e.data2.h - HALF_PI;
+  };
+
+/** Zigzag with a barrel roll on every direction change. */
+export const zigzag =
+  (x0: number, amp: number, period: number, vy: number): Behavior =>
+  (e, dt) => {
+    e.y += vy * dt;
+    const ph = (e.t / period) % 1;
+    const tri = ph < 0.5 ? ph * 4 - 1 : 3 - ph * 4;
+    e.x = x0 + tri * amp;
+    const near = Math.min(Math.abs(ph - 0.5), Math.min(ph, 1 - ph));
+    e.scaleX = near < 0.08 ? Math.cos((near / 0.08) * Math.PI) * -1 : 1;
+    e.rotation = (ph < 0.5 ? -1 : 1) * 0.35;
+  };
+
+/** Orbit a descending centre point, then break away outward. */
+export const orbit =
+  (cx: number, cy0: number, r: number, a0: number, w: number, hold: number): Behavior =>
+  (e, dt) => {
+    if (e.t < hold) {
+      const a = a0 + e.t * w;
+      const cy = cy0 + e.t * 18;
+      const rr = Math.min(r, 40 + e.t * 160);
+      e.x = cx + Math.cos(a) * rr;
+      e.y = cy + Math.sin(a) * rr;
+      e.rotation = a + (w > 0 ? Math.PI : 0);
+      e.data2.h = a;
+    } else {
+      e.x += Math.cos(e.data2.h) * 300 * dt;
+      e.y += Math.sin(e.data2.h) * 300 * dt;
+      e.rotation = e.data2.h - HALF_PI;
+    }
+  };
+
+/** Spiral in from a wide radius, then peel off downward. */
+export const spiral =
+  (cx: number, cy: number, a0: number, dir: number): Behavior =>
+  (e, dt) => {
+    if (e.t < 3.2) {
+      const a = a0 + e.t * 1.9 * dir;
+      const r = 320 - e.t * 70;
+      e.x = cx + Math.cos(a) * r;
+      e.y = cy + Math.sin(a) * r * 0.75;
+      e.rotation = a + (dir > 0 ? 0 : Math.PI);
+    } else {
+      e.y += 280 * dt;
+      e.rotation = Phaser.Math.Angle.RotateTo(e.rotation, 0, dt * 4);
+    }
+  };
+
+/** WWII dive bomber: siren dive toward a target point, bombs away, pull up and climb out. */
+export const diveBomb =
+  (scene: GameScene, tx: number, ty: number): Behavior =>
+  (e, dt) => {
+    const st = e.data2.st ?? 0;
+    if (st === 0) {
+      if (e.data2.h === undefined) {
+        e.data2.h = Phaser.Math.Angle.Between(e.x, e.y, tx, ty);
+        Sound.sfx('siren');
+      }
+      e.data2.v = Math.min(420, (e.data2.v ?? 160) + 300 * dt);
+      e.setScale(Math.max(0.8, e.scaleY - dt * 0.08));
+      if (e.y > ty - 140) {
+        e.data2.st = 1;
+        scene.dropBombs(e.x, e.y + 10, 3);
+      }
+    } else {
+      e.data2.h = Phaser.Math.Angle.RotateTo(e.data2.h, -HALF_PI, dt * 2.6);
+      e.setScale(Math.min(1.25, e.scaleY + dt * 0.3));
+    }
+    e.x += Math.cos(e.data2.h) * e.data2.v * dt;
+    e.y += Math.sin(e.data2.h) * e.data2.v * dt;
+    e.rotation = e.data2.h - HALF_PI;
+  };
+
+/** Attack helicopter: hover in, strafe sideways, then slip away. */
+export const heli =
+  (ty: number, hold: number): Behavior =>
+  (e, dt) => {
+    if (e.data2.x0 === undefined) e.data2.x0 = e.x;
+    if (e.t < hold) {
+      e.y += (ty - e.y) * Math.min(1, dt * 1.5);
+      e.x = e.data2.x0 + Math.sin(e.t * 0.8) * 110;
+      e.rotation = Math.sin(e.t * 0.8 + HALF_PI) * 0.2;
+    } else {
+      e.x += (e.data2.x0 < W / 2 ? -1 : 1) * 220 * dt;
+      e.y -= 40 * dt;
+    }
   };
 
 // ------------------------------------------------------------ director
@@ -290,6 +412,95 @@ export class Director {
         },
       },
       {
+        id: 'zigzag', min: 1, weight: 2, cost: 1.1,
+        run: () => {
+          const x = rx(120);
+          for (let i = 0; i < 4; i++) s.spawnEnemy('fighter', x, -30 - i * 55, zigzag(x, 90, 1.6, 170)).fireEvery = 2;
+        },
+      },
+      {
+        id: 'pincer', min: 2, weight: 2, cost: 1.3,
+        run: () => {
+          for (let i = 0; i < 3; i++) {
+            s.spawnEnemy('fighter', -30, 60 + i * 50, heading(0.55, 250, 0));
+            s.spawnEnemy('fighter', W + 30, 60 + i * 50, heading(Math.PI - 0.55, 250, 0));
+          }
+        },
+      },
+      {
+        id: 'loopers', min: 2, weight: 1.6, cost: 1.3,
+        run: () => {
+          for (let i = 0; i < 3; i++) s.spawnEnemy(i === 1 ? 'ace' : 'fighter', 110 + i * 130, -40 - i * 30, loop(i % 2 ? 1 : -1));
+        },
+      },
+      {
+        id: 'gunships', min: 2, weight: 1.6, cost: 1.6,
+        run: () => {
+          if (run.era === 'ww2') {
+            for (let i = 0; i < 3; i++) {
+              s.time.delayedCall(i * 500, () =>
+                s.spawnEnemy('gunship', Phaser.Math.Between(60, W - 60), -40, diveBomb(s, Phaser.Math.Clamp(s.player.x + Phaser.Math.Between(-60, 60), 40, W - 40), s.player.y)),
+              );
+            }
+          } else if (run.era === 'modern') {
+            s.spawnEnemy('gunship', 120, -50, heli(150, 7));
+            s.spawnEnemy('gunship', W - 120, -80, heli(210, 7.5));
+          } else {
+            const x = rx(130);
+            for (let i = 0; i < 7; i++) s.spawnEnemy('gunship', x, -30 - i * 36, sine(x, 120, 3, 230, -i * 0.6)).setScale(0.6);
+          }
+        },
+      },
+      {
+        id: 'strafe', min: 3, weight: 1.3, cost: 1.2,
+        run: () => {
+          const x = Phaser.Math.Clamp(s.player.x, 60, W - 60);
+          for (const dx of [-40, 40]) {
+            const e = s.spawnEnemy('heavy', x + dx, -60, straight(0, 360));
+            e.fire = (en) => s.stream(en, 8, 0.07, 280 * s.diff.bulletSpeed, 'eb_needle');
+            e.fireT = 0.3;
+            e.fireEvery = 9;
+          }
+        },
+      },
+      {
+        id: 'circle', min: 4, weight: 1.2, cost: 1.8,
+        run: () => {
+          const cx = rx(150);
+          for (let i = 0; i < 8; i++) {
+            const e = s.spawnEnemy('fighter', cx, -40, orbit(cx, 160, 120, (i / 8) * Math.PI * 2, 1.4, 5.5));
+            e.fire = (en) => s.eShot(en.x, en.y, en.data2.h, 150 * s.diff.bulletSpeed, 'eb_blue');
+            e.fireEvery = 1.2;
+          }
+        },
+      },
+      {
+        id: 'spiral', min: 5, weight: 1.1, cost: 1.6,
+        run: () => {
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          for (let i = 0; i < 6; i++) s.spawnEnemy('fighter', -100, -100, spiral(W / 2, 220, (i / 6) * Math.PI * 2, dir));
+        },
+      },
+      {
+        id: 'groundAssault', min: 1, weight: theme.land ? 2.6 : 0, cost: 1.4,
+        run: () => {
+          if (!s.world.isLandAt(-80)) return;
+          const kind = Phaser.Utils.Array.GetRandom(['sam', 'infantry', 'convoy', 'aanest']) as string;
+          if (kind === 'sam') {
+            s.spawnEnemy('sam', rx(80), -80, ground(s));
+            for (let i = 0; i < 2; i++) s.spawnEnemy('infantry', rx(60), -40 - i * 120, ground(s, 0, -8));
+          } else if (kind === 'infantry') {
+            for (let i = 0; i < 4; i++) s.spawnEnemy('infantry', 60 + i * 120, -40 - (i % 2) * 70, ground(s, 0, -10));
+          } else if (kind === 'convoy') {
+            const x = rx(80);
+            for (let i = 0; i < 4; i++) s.spawnEnemy('truck', x, -60 - i * 80, ground(s, 0, -40));
+            s.spawnEnemy('aagun', x + (x < W / 2 ? 110 : -110), -120, ground(s));
+          } else {
+            for (let i = 0; i < 3; i++) s.spawnEnemy('aagun', 90 + i * 150, -60 - (i % 2) * 60, ground(s));
+          }
+        },
+      },
+      {
         id: 'heavyLine', min: 6, weight: 1, cost: 2,
         run: () => {
           for (let i = 0; i < 3; i++) s.spawnEnemy('heavy', 90 + i * 150, -60 - i * 40, hover(140 + i * 30, 6, 30));
@@ -307,6 +518,12 @@ export class Director {
   /** Ground forces over land: tank columns and flak emplacements. */
   private landWave(heavy: boolean) {
     const s = this.s;
+    if (Math.random() < 0.35) {
+      // SAM site with infantry escort
+      s.spawnEnemy('sam', Phaser.Math.Between(70, W - 70), -80, ground(s));
+      s.spawnEnemy('infantry', Phaser.Math.Between(60, W - 60), -150, ground(s, 0, -8));
+      return;
+    }
     if (heavy) {
       for (let i = 0; i < 2; i++) s.spawnEnemy('flak', 90 + Math.random() * (W - 180), -60 - i * 160, ground(s));
       s.spawnEnemy('tank', Phaser.Math.Between(60, W - 60), -80, ground(s, 0, -25));
