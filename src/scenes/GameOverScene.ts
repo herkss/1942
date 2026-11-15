@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { W, H, FONT } from '../data/config';
-import { run, prefs } from '../data/state';
+import { run, prefs, MAX_CONTINUES } from '../data/state';
 import { t, eraName, fontLoc, FONT_ANY } from '../data/i18n';
 import { Sound } from '../audio/sound';
 import { MISC_STYLES } from '../audio/styles';
@@ -61,15 +61,22 @@ export class GameOverScene extends Phaser.Scene {
     // mini leaderboard
     void this.loadBoard();
 
+    const left = MAX_CONTINUES - run.continues;
     const cont = this.add
-      .text(W / 2, H - 110, t('continueBtn'), { fontFamily: fontLoc(), fontSize: '24px', color: '#ffffff', backgroundColor: '#20603a', padding: { x: 22, y: 10 } })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
+      .text(W / 2, H - 110, left > 0 ? t('continueBtn', left) : t('noContinue'), {
+        fontFamily: fontLoc(),
+        fontSize: left > 0 ? '22px' : '17px',
+        color: left > 0 ? '#ffffff' : '#ff9090',
+        backgroundColor: left > 0 ? '#20603a' : '#2a1414',
+        padding: { x: 20, y: 10 },
+      })
+      .setOrigin(0.5);
+    if (left > 0) cont.setInteractive({ useHandCursor: true });
     const quit = this.add
       .text(W / 2, H - 52, t('toTitle'), { fontFamily: fontLoc(), fontSize: '18px', color: '#cfe6ff' })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    this.add.text(W / 2, H - 18, t('contNote'), { fontFamily: fontLoc(), fontSize: '11px', color: '#7f98b0' }).setOrigin(0.5);
+    if (left > 0) this.add.text(W / 2, H - 18, t('contNote'), { fontFamily: fontLoc(), fontSize: '11px', color: '#7f98b0' }).setOrigin(0.5);
     cont.on('pointerdown', () => this.cont());
     quit.on('pointerdown', () => this.toTitle());
     this.input.keyboard!.on('keydown-ESC', () => this.toTitle());
@@ -131,7 +138,7 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private cont() {
-    if (this.done) return;
+    if (this.done || run.continues >= MAX_CONTINUES) return;
     this.done = true;
     Sound.sfx('confirm');
     Sound.stopMusic(0.4);

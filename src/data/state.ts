@@ -63,6 +63,7 @@ export function resetRun(era: Era) {
   Object.assign(run, newRun(era));
 }
 
+export const MAX_CONTINUES = 3;
 export const maxArmor = () => 3 + run.up.armor;
 export const maxBombs = () => 3 + run.up.bomb;
 

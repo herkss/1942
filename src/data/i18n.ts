@@ -125,7 +125,8 @@ const S = {
   submitted: { en: 'Registered! Rank #{0}', ko: '등록 완료! {0}위', ja: '登録完了! {0}位' },
   needNick: { en: 'Enter a nickname', ko: '닉네임을 입력하세요', ja: 'ニックネームを入力してください' },
   sending: { en: 'Sending…', ko: '전송 중…', ja: '送信中…' },
-  continueBtn: { en: 'CONTINUE', ko: '컨티뉴', ja: 'コンティニュー' },
+  continueBtn: { en: 'CONTINUE ({0} left)', ko: '컨티뉴 (남은 횟수 {0})', ja: 'コンティニュー (残り{0}回)' },
+  noContinue: { en: 'NO CONTINUES LEFT', ko: '컨티뉴 횟수를 모두 사용했습니다', ja: 'コンティニュー回数がありません' },
 } satisfies Record<string, Entry>;
 
 export type StrKey = keyof typeof S;
