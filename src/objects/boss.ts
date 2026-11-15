@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { D, W, ERAS } from '../data/config';
 import { run } from '../data/state';
-import { difficulty, type BossKind } from '../data/themes';
+import { difficulty, THEMES, type BossKind } from '../data/themes';
 import { tk } from '../gfx/textures';
 import type { Enemy } from './entities';
 import type { GameScene } from '../scenes/GameScene';
@@ -40,7 +40,7 @@ export class Boss {
     this.bs = d.bulletSpeed;
     this.fr = d.fireRate;
     this.extra = d.extraBullets;
-    const finalBoost = stage % 12 === 0 ? 1.35 : 1;
+    const finalBoost = stage % THEMES.length === 0 ? 1.35 : 1;
     const hpMul = d.bossHp * finalBoost;
     this.name = ERAS[run.era].bossNames[kind];
 

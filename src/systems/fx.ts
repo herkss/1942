@@ -11,10 +11,15 @@ export class Fx {
   private smoke: Emitter;
   private debris: Emitter;
   private foam: Emitter;
+  private burnSmoke: Emitter;
+  private burnFire: Emitter;
+  private tracers: Phaser.GameObjects.Image[] = [];
   private flashes: Phaser.GameObjects.Image[] = [];
   private rings: Phaser.GameObjects.Image[] = [];
   private texts: Phaser.GameObjects.Text[] = [];
   private screen: Phaser.GameObjects.Rectangle;
+  /** set in deep space: no water foam */
+  noWake = false;
 
   constructor(private scene: Phaser.Scene) {
     const add = scene.add;
@@ -69,14 +74,81 @@ export class Fx {
       speedY: { min: 60, max: 90 },
     });
     this.foam.setDepth(D.ground - 1);
+    this.burnSmoke = add.particles(0, 0, 'smoke', {
+      emitting: false,
+      speedX: { min: -12, max: 12 },
+      speedY: { min: -30, max: -10 },
+      lifespan: { min: 1200, max: 2200 },
+      scale: { start: 0.35, end: 1.7 },
+      alpha: { start: 0.5, end: 0 },
+      tint: [0x262626, 0x3a3a3a, 0x4a4440],
+      rotate: { min: 0, max: 360 },
+    });
+    this.burnSmoke.setDepth(D.decoLow + 0.6);
+    this.burnFire = add.particles(0, 0, 'smoke', {
+      emitting: false,
+      speedX: { min: -15, max: 15 },
+      speedY: { min: -50, max: -20 },
+      lifespan: { min: 250, max: 600 },
+      scale: { start: 0.45, end: 0.08 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xffe080, 0xffa030, 0xff5a20],
+      blendMode: 'ADD',
+    });
+    this.burnFire.setDepth(D.decoLow + 0.7);
     this.screen = add.rectangle(W / 2, H / 2, W, H, 0xffffff, 0).setDepth(D.flash);
   }
 
   setFoamScroll(speed: number) {
     this.foam.speedY = speed;
+    this.burnSmoke.speedY = { min: speed - 30, max: speed - 8 };
+    this.burnFire.speedY = { min: speed - 50, max: speed - 15 };
+  }
+
+  /** Fire + smoke on a burning wreck (scrolls with the world). */
+  burn(x: number, y: number, big = false) {
+    this.burnSmoke.explode(big ? 2 : 1, x, y);
+    if (Math.random() < 0.7) this.burnFire.explode(big ? 2 : 1, x, y);
+  }
+
+  /** Distant explosion on the ground below (no camera shake). */
+  groundBlast(x: number, y: number) {
+    this.burnFire.explode(10, x, y);
+    this.burnSmoke.explode(3, x, y);
+    const f = this.flashImg();
+    f.setDepth(D.decoLow + 0.8).setPosition(x, y).setScale(0.15).setAlpha(0.9).setTint(0xffc070);
+    this.scene.tweens.add({
+      targets: f,
+      scale: 0.5,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => f.setActive(false).setVisible(false).setDepth(D.fx + 2),
+    });
+  }
+
+  /** Cosmetic anti-aircraft tracer arcing up from the ground. */
+  tracer(x: number, y: number) {
+    let t = this.tracers.find((i) => !i.active);
+    if (!t) {
+      t = this.scene.add.image(0, 0, 'pb_wing_ww2').setBlendMode(Phaser.BlendModes.ADD).setDepth(D.decoLow + 0.9);
+      this.tracers.push(t);
+    }
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 0.9;
+    const d = 220 + Math.random() * 200;
+    t.setActive(true).setVisible(true).setPosition(x, y).setAlpha(0.9).setScale(0.8, 1.4).setRotation(a + Math.PI / 2).setTint(Math.random() < 0.7 ? 0xffa040 : 0x80ff80);
+    const tt = t;
+    this.scene.tweens.add({
+      targets: tt,
+      x: x + Math.cos(a) * d,
+      y: y + Math.sin(a) * d,
+      alpha: 0,
+      duration: 550 + Math.random() * 300,
+      onComplete: () => tt.setActive(false).setVisible(false),
+    });
   }
 
   wake(x: number, y: number, n = 1) {
+    if (this.noWake) return;
     this.foam.explode(n, x, y);
   }
 

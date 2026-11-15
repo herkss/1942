@@ -19,7 +19,7 @@ export function tk(name: string) {
   return `${name}_${currentEra}`;
 }
 
-function make(scene: Phaser.Scene, key: string, w: number, h: number, draw: (c: Ctx, w: number, h: number) => void) {
+export function make(scene: Phaser.Scene, key: string, w: number, h: number, draw: (c: Ctx, w: number, h: number) => void) {
   if (scene.textures.exists(key)) scene.textures.remove(key);
   const tex = scene.textures.createCanvas(key, Math.ceil(w), Math.ceil(h))!;
   const c = tex.getContext();
@@ -50,7 +50,7 @@ export function shade(hex: string, p: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -67,7 +67,7 @@ function flipV(c: Ctx, w: number, h: number) {
   c.translate(-w / 2, -h / 2);
 }
 
-function glowCircle(c: Ctx, x: number, y: number, r: number, stops: [number, string][]) {
+export function glowCircle(c: Ctx, x: number, y: number, r: number, stops: [number, string][]) {
   const g = c.createRadialGradient(x, y, 0, x, y, r);
   for (const [o, col] of stops) g.addColorStop(o, col);
   c.fillStyle = g;
@@ -352,7 +352,7 @@ function planeTex(scene: Phaser.Scene, key: string, w: number, h: number, spec: 
     if (down) flipV(c, w, h);
     drawPlane(c, w, h, spec);
   });
-  shadowOf(scene, key);
+  shadowOf(scene, key, spec.era === 'future' ? 0 : 0.38);
 }
 
 // ---------------------------------------------------------------- ships
@@ -597,6 +597,28 @@ function drawCarrier(c: Ctx, w: number, h: number, era: Era) {
   c.font = 'bold 34px "Black Ops One", sans-serif';
   c.textAlign = 'center';
   c.fillText(era === 'ww2' ? '07' : era === 'modern' ? '77' : 'X1', rx, h * 0.93);
+  // vertical deck lettering, weathered white paint
+  c.save();
+  c.translate(dl + 24, h * 0.56);
+  c.rotate(-Math.PI / 2);
+  c.font = 'bold 27px "Black Ops One", sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillStyle = era === 'future' ? 'rgba(220,250,255,0.9)' : 'rgba(245,245,240,0.88)';
+  if (era === 'future') {
+    c.shadowColor = '#36e0ff';
+    c.shadowBlur = 6;
+  }
+  c.fillText('www.herks.co.kr', 0, 0);
+  c.shadowBlur = 0;
+  // scuffs: knock random specks out of the paint
+  c.globalCompositeOperation = 'source-atop';
+  const wr = rng(era.length * 101);
+  for (let i = 0; i < 160; i++) {
+    c.fillStyle = `rgba(${era === 'ww2' ? '120,95,60' : '50,54,60'},${0.3 + wr() * 0.5})`;
+    c.fillRect((wr() - 0.5) * 240, (wr() - 0.5) * 30, 1 + wr() * 3, 1 + wr() * 2);
+  }
+  c.restore();
   // island (starboard)
   const ix = dr - 22;
   const iy = h * 0.42;
@@ -838,9 +860,9 @@ export function buildEraTextures(scene: Phaser.Scene, era: Era) {
     drawShip(c, w, h, { hull: shipHull, deck: shipDeck, sup: shade(shipHull, 0.25), era, mounts: [0.16, 0.28, 0.72, 0.84], stacks: 2, glow: fut ? '#c43cff' : undefined });
   });
   make(scene, sfx('boss_fortress'), 360, 320, (c, w, h) => drawFortress(c, w, h, era));
-  shadowOf(scene, sfx('boss_fortress'));
+  shadowOf(scene, sfx('boss_fortress'), fut ? 0 : 0.38);
   podTex(scene, sfx('pod'), era);
-  shadowOf(scene, sfx('pod'));
+  shadowOf(scene, sfx('pod'), fut ? 0 : 0.38);
 
   // --- player projectiles
   const main = ww2 ? '#ffe070' : era === 'modern' ? '#fff3c0' : '#ff5ae0';

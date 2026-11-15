@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { D, W, H, FONT, FONT_KR, ERAS } from '../data/config';
+import { D, W, H, FONT, ERAS } from '../data/config';
+import { fontLoc } from '../data/i18n';
 import { run, prefs, maxArmor, maxBombs } from '../data/state';
 import { tk } from '../gfx/textures';
 import type { GameScene } from '../scenes/GameScene';
@@ -42,7 +43,7 @@ export class Hud {
     this.bossName = txt(scene, W / 2, 86, '', 13, '#ff8080').setOrigin(0.5, 0).setVisible(false);
     this.bannerMain = txt(scene, W / 2, H * 0.4, '', 40, '#ffffff').setOrigin(0.5).setDepth(D.banner).setAlpha(0);
     this.bannerSub = scene.add
-      .text(W / 2, H * 0.4 + 40, '', { fontFamily: FONT_KR, fontSize: '18px', color: '#ffffff', stroke: '#000', strokeThickness: 4 })
+      .text(W / 2, H * 0.4 + 40, '', { fontFamily: fontLoc(), fontSize: '18px', color: '#ffffff', stroke: '#000', strokeThickness: 4 })
       .setOrigin(0.5)
       .setDepth(D.banner)
       .setAlpha(0);
@@ -158,6 +159,15 @@ export class Hud {
       b.c.setFillStyle(b.c.fillColor, ready ? 0.35 : 0.08);
       b.t.setAlpha(ready ? 1 : 0.35);
     }
+  }
+
+  nowPlaying(title: string) {
+    const t = this.scene.add
+      .text(12, H - 18, `♪ ${title}`, { fontFamily: FONT, fontSize: '12px', color: '#cfe6ff', stroke: '#000', strokeThickness: 3 })
+      .setOrigin(0, 1)
+      .setDepth(D.hud)
+      .setAlpha(0);
+    this.scene.tweens.add({ targets: t, alpha: 0.9, x: 16, duration: 500, yoyo: true, hold: 3200, onComplete: () => t.destroy() });
   }
 
   setBoss(name: string | null) {

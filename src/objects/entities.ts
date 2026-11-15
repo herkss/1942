@@ -75,6 +75,8 @@ export type EnemyKind =
   | 'bomber'
   | 'gunboat'
   | 'destroyer'
+  | 'tank'
+  | 'flak'
   | 'part'
   | 'core';
 
@@ -98,6 +100,8 @@ export const EDEF: Record<Exclude<EnemyKind, 'part' | 'core'>, EnemyDef> = {
   bomber: { tex: 'en_bomber', hp: 70, hw: 60, hh: 34, score: 3000, od: 16, air: true, boom: 'l' },
   gunboat: { tex: 'en_gunboat', hp: 16, hw: 16, hh: 44, score: 700, od: 5, air: false, boom: 'm' },
   destroyer: { tex: 'en_destroyer', hp: 60, hw: 24, hh: 82, score: 2500, od: 12, air: false, boom: 'l' },
+  tank: { tex: 'en_tank', hp: 12, hw: 17, hh: 24, score: 500, od: 4, air: false, boom: 'm' },
+  flak: { tex: 'en_flak', hp: 30, hw: 26, hh: 26, score: 1200, od: 8, air: false, boom: 'm' },
 };
 
 export type Behavior = (e: Enemy, dt: number) => void;

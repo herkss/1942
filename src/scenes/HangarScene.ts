@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { W, H, FONT, FONT_KR } from '../data/config';
+import { W, H, FONT } from '../data/config';
+import { t, themeName, fontLoc, type StrKey } from '../data/i18n';
+import { MISC_STYLES } from '../audio/styles';
 import { run, UPGRADE_DEFS, upgradeCost, maxBombs, prefs } from '../data/state';
 import { themeFor, loopOf } from '../data/themes';
 import { tk } from '../gfx/textures';
@@ -41,15 +43,16 @@ export class HangarScene extends Phaser.Scene {
     g.lineBetween(W / 2, 0, W / 2, H);
     this.add.image(W / 2, 150, tk('player')).setScale(1.6);
     this.add.text(W / 2, 34, 'HANGAR', { fontFamily: FONT, fontSize: '34px', color: '#ffffff', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
-    this.add.text(W / 2, 70, '격납고 — 기체 정비 및 강화', { fontFamily: FONT_KR, fontSize: '15px', color: '#9fd8ff' }).setOrigin(0.5);
+    this.add.text(W / 2, 70, t('hangarSub'), { fontFamily: fontLoc(), fontSize: '15px', color: '#9fd8ff' }).setOrigin(0.5);
     this.credits = this.add.text(W / 2, 222, '', { fontFamily: FONT, fontSize: '22px', color: '#ffd040', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
 
     this.rows = [];
     let y = 270;
     for (const d of UPGRADE_DEFS) {
+      const nk = ('up' + d.id[0].toUpperCase() + d.id.slice(1)) as StrKey;
       this.rows.push({
-        label: `${d.ko}  ${d.name}`,
-        sub: () => `${d.desc}   ${'■'.repeat(run.up[d.id])}${'□'.repeat(d.max - run.up[d.id])}`,
+        label: `${t(nk)}  ${d.name}`,
+        sub: () => `${t((nk + 'D') as StrKey)}   ${'■'.repeat(run.up[d.id])}${'□'.repeat(d.max - run.up[d.id])}`,
         cost: () => (run.up[d.id] >= d.max ? null : upgradeCost(d.id, run.up[d.id])),
         buy: () => run.up[d.id]++,
         y,
@@ -57,16 +60,16 @@ export class HangarScene extends Phaser.Scene {
       y += 58;
     }
     this.rows.push({
-      label: '폭탄 보급  BOMB',
-      sub: () => `보유 ${run.bombs} / ${maxBombs()}`,
+      label: `${t('buyBomb')}  BOMB`,
+      sub: () => t('owned', run.bombs, maxBombs()),
       cost: () => (run.bombs >= maxBombs() ? null : 300),
       buy: () => run.bombs++,
       y,
     });
     y += 58;
     this.rows.push({
-      label: '호위기 배치  WINGMAN',
-      sub: () => `호위기 ${run.wingmen} / 2`,
+      label: `${t('buyWing')}  WINGMAN`,
+      sub: () => t('owned', run.wingmen, 2),
       cost: () => (run.wingmen >= 2 ? null : 900),
       buy: () => run.wingmen++,
       y,
@@ -74,8 +77,8 @@ export class HangarScene extends Phaser.Scene {
 
     for (const r of this.rows) {
       r.bg = this.add.rectangle(W / 2, r.y, W - 30, 52, 0x0f2436, 0.95).setStrokeStyle(2, 0x2a4a66).setInteractive({ useHandCursor: true });
-      r.t1 = this.add.text(28, r.y - 18, r.label, { fontFamily: FONT_KR, fontSize: '16px', color: '#ffffff' });
-      r.t2 = this.add.text(28, r.y + 4, '', { fontFamily: FONT_KR, fontSize: '12px', color: '#9fb8d0' });
+      r.t1 = this.add.text(28, r.y - 18, r.label, { fontFamily: fontLoc(), fontSize: '16px', color: '#ffffff' });
+      r.t2 = this.add.text(28, r.y + 4, '', { fontFamily: fontLoc(), fontSize: '12px', color: '#9fb8d0' });
       r.t3 = this.add.text(W - 28, r.y, '', { fontFamily: FONT, fontSize: '16px', color: '#ffd040' }).setOrigin(1, 0.5);
       const idx = this.rows.indexOf(r);
       r.bg.on('pointerdown', () => {
@@ -92,16 +95,16 @@ export class HangarScene extends Phaser.Scene {
     const touch = this.sys.game.device.input.touch;
     const loop = loopOf(next);
     this.add
-      .text(W / 2, H - 112, `NEXT: STAGE ${next}  ${th.ko}${loop > 1 ? ` (LOOP ${loop})` : ''}`, { fontFamily: FONT_KR, fontSize: '16px', color: '#cfe6ff' })
+      .text(W / 2, H - 112, `${t('next', next, themeName(th))}${loop > 1 ? ` (${t('loop', loop)})` : ''}`, { fontFamily: fontLoc(), fontSize: '16px', color: '#cfe6ff' })
       .setOrigin(0.5);
     const go = this.add
-      .text(W / 2, H - 70, '출격  SORTIE ▶', { fontFamily: FONT_KR, fontSize: '26px', color: '#ffffff', backgroundColor: '#b03020', padding: { x: 22, y: 10 } })
+      .text(W / 2, H - 70, t('sortie'), { fontFamily: fontLoc(), fontSize: '26px', color: '#ffffff', backgroundColor: '#b03020', padding: { x: 22, y: 10 } })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     go.on('pointerdown', () => this.sortie());
     this.tweens.add({ targets: go, scale: 1.05, yoyo: true, repeat: -1, duration: 600 });
     this.add
-      .text(W / 2, H - 24, touch ? '항목을 두 번 터치하면 구매' : '↑↓ 선택 · ENTER 구매 · S/SPACE 출격', { fontFamily: FONT_KR, fontSize: '12px', color: '#7f98b0' })
+      .text(W / 2, H - 24, touch ? t('hangarTouch') : t('hangarKeys'), { fontFamily: fontLoc(), fontSize: '12px', color: '#7f98b0' })
       .setOrigin(0.5);
 
     const kb = this.input.keyboard!;
@@ -116,7 +119,7 @@ export class HangarScene extends Phaser.Scene {
       Sound.setMuted(prefs.muted);
     });
 
-    Sound.music(77, run.era, 'title');
+    Sound.music('hangar', MISC_STYLES.hangar, 7, run.era);
     this.refresh();
     this.cameras.main.fadeIn(400);
   }

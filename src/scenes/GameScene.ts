@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { D, W, H, FONT, FONT_KR, ERAS } from '../data/config';
+import { D, W, H, FONT, ERAS } from '../data/config';
+import { t, themeName, fontLoc } from '../data/i18n';
 import { run, prefs, maxArmor, maxBombs } from '../data/state';
-import { themeFor, difficulty, THEMES, loopOf, type Theme } from '../data/themes';
-import { tk, setTextureEra, buildWaterTexture } from '../gfx/textures';
+import { themeFor, difficulty, loopOf, type Theme } from '../data/themes';
+import { tk, setTextureEra } from '../gfx/textures';
 import { Sound } from '../audio/sound';
 import { Pool, Shot, Enemy, Item, EDEF, type EnemyKind, type Behavior, type FireFn } from '../objects/entities';
 import { Player } from '../objects/player';
@@ -10,16 +11,14 @@ import { Boss } from '../objects/boss';
 import { Fx } from '../systems/fx';
 import { Hud } from '../systems/hud';
 import { Director } from '../systems/director';
+import { World } from '../systems/world';
+import { STAGE_STYLES, BOSS_STYLES, MISC_STYLES } from '../audio/styles';
 
 type Phase = 'takeoff' | 'combat' | 'warning' | 'boss' | 'clear' | 'landing' | 'result' | 'over';
 
 const DEG = Math.PI / 180;
 const SHOT_R: Record<string, number> = { eb_orb: 5, eb_blue: 5, eb_big: 9, eb_needle: 4 };
 
-interface Deco {
-  img: Phaser.GameObjects.Image;
-  k: number;
-}
 interface Flyover {
   img: Phaser.GameObjects.Image;
   sh: Phaser.GameObjects.Image;
@@ -42,8 +41,7 @@ export class GameScene extends Phaser.Scene {
   items!: Pool<Item>;
   enemyPool!: Pool<Enemy>;
 
-  private water!: Phaser.GameObjects.TileSprite;
-  private decos: Deco[] = [];
+  world!: World;
   private flyovers: Flyover[] = [];
   private carrier: Phaser.GameObjects.Image | null = null;
   private carrierVel = 0;
@@ -51,16 +49,12 @@ export class GameScene extends Phaser.Scene {
   private phaseT = 0;
   private sub = '';
   private subT = 0;
-  private islandAcc = 0;
-  private cloudAcc = 0;
   private hitStop = 0;
-  private nextExtend = 150000;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private movePtr: number | null = null;
   private ignorePtr = new Set<number>();
   private tdx = 0;
   private tdy = 0;
-  private lightningT = 6;
   private padPrev: Record<string, boolean> = {};
   private resultReady = false;
 
@@ -82,26 +76,31 @@ export class GameScene extends Phaser.Scene {
     setTextureEra(run.era);
     this.theme = themeFor(run.stage);
     this.diff = difficulty(run.stage);
-    this.decos = [];
     this.flyovers = [];
+    this.carrierGlow = [];
     this.boss = null;
     this.director = null;
     this.hitStop = 0;
     this.resultReady = false;
     this.ignorePtr.clear();
     this.movePtr = null;
-    this.nextExtend = Math.max(150000, Math.ceil((run.score + 1) / 150000) * 150000);
     run.stageScore = 0;
     run.stageKills = 0;
     run.stageHits = 0;
 
-    const tIdx = (run.stage - 1) % THEMES.length;
-    buildWaterTexture(this, `water_${tIdx}`, this.theme);
-    this.water = this.add.tileSprite(W / 2, H / 2, W, H, `water_${tIdx}`).setDepth(D.water);
-    if (this.theme.night) this.add.rectangle(W / 2, H / 2, W, H, 0x000814, 0.38).setDepth(D.nightOverlay);
-    if (this.theme.overlay) this.add.rectangle(W / 2, H / 2, W, H, this.theme.overlay[0], this.theme.overlay[1]).setDepth(D.weather - 1);
-
     this.fx = new Fx(this);
+    const space = run.era === 'future';
+    this.world = new World(
+      this,
+      this.theme,
+      this.fx,
+      (w) =>
+        w === 'land'
+          ? this.hud.banner(space ? 'ORBITAL ZONE' : 'LANDFALL', t('landfall'), '#ffd080', 1400)
+          : this.hud.banner(space ? 'DEEP SPACE' : 'OPEN SEA', t('backToSea'), '#80d0ff', 1200),
+      space,
+    );
+    Sound.setEra(run.era);
     this.pShots = new Pool(() => new Shot(this));
     this.eShots = new Pool(() => new Shot(this));
     this.items = new Pool(() => new Item(this).setDepth(D.item));
@@ -109,16 +108,16 @@ export class GameScene extends Phaser.Scene {
     this.player = new Player(this);
     this.hud = new Hud(this);
 
-    // pre-populate scenery so the screen isn't empty
-    for (let i = 0; i < 3; i++) this.spawnDeco(Phaser.Math.Between(-100, H));
-
-    this.setupWeather();
     this.setupInput();
     if (this.renderer.type === Phaser.WEBGL) this.cameras.main.postFX.addVignette(0.5, 0.5, 0.9, 0.32);
     this.cameras.main.fadeIn(500);
 
-    Sound.music(run.stage, run.era, 'stage');
-    this.events.once('shutdown', () => Sound.engineStop());
+    const title = Sound.music('stage', STAGE_STYLES[this.theme.music], run.stage, run.era);
+    this.time.delayedCall(2600, () => this.hud.nowPlaying(title));
+    this.events.once('shutdown', () => {
+      Sound.engineStop();
+      Sound.ambience(false);
+    });
     this.startTakeoff();
   }
 
@@ -230,15 +229,15 @@ export class GameScene extends Phaser.Scene {
     }
     this.phaseT += dt;
 
-    this.scrollWorld(dt);
+    this.world.update(dt, this.scrollSpeed);
     this.updatePhase(dt);
 
     const [kx, ky] = this.readMove();
-    const t = this.hud.touch;
-    if (t.bomb) this.useBomb();
-    if (t.roll) this.player.tryRoll();
-    if (t.od) this.player.tryOverdrive();
-    t.bomb = t.roll = t.od = false;
+    const tb = this.hud.touch;
+    if (tb.bomb) this.useBomb();
+    if (tb.roll) this.player.tryRoll();
+    if (tb.od) this.player.tryOverdrive();
+    tb.bomb = tb.roll = tb.od = false;
     this.player.update(dt, kx, ky, this.tdx, this.tdy);
     this.tdx = this.tdy = 0;
 
@@ -251,123 +250,9 @@ export class GameScene extends Phaser.Scene {
     this.collide();
     this.hud.update();
 
-    if (run.score >= this.nextExtend) {
-      this.nextExtend += 150000;
-      run.lives++;
-      Sound.sfx('oneup');
-      this.hud.banner('EXTEND!', '보너스 생명 +1', '#ff60c0', 1100);
-    }
   }
 
   // ================================================================ scenery
-  private spawnDeco(y = -160) {
-    const th = this.theme;
-    if (th.island !== 'none' && Math.random() < th.islandRate) {
-      const img = this.add
-        .image(Phaser.Math.Between(-40, W + 40), y, `island_${th.island}_${Phaser.Math.Between(0, 2)}`)
-        .setDepth(D.decoLow)
-        .setRotation(Math.random() * Math.PI * 2)
-        .setScale(0.7 + Math.random() * 0.7);
-      this.decos.push({ img, k: 1 });
-    }
-  }
-
-  private spawnCloud(y = -120) {
-    const th = this.theme;
-    const high = !th.lowClouds && Math.random() < 0.45;
-    const img = this.add
-      .image(Phaser.Math.Between(-60, W + 60), y, `cloud_${Phaser.Math.Between(0, 3)}`)
-      .setDepth(high ? D.cloudHigh : D.cloudLow)
-      .setScale(high ? 1.6 + Math.random() : th.lowClouds ? 1.6 + Math.random() * 1.2 : 1 + Math.random() * 0.8)
-      .setAlpha(high ? 0.35 : th.lowClouds ? 0.85 : 0.55)
-      .setFlipX(Math.random() < 0.5);
-    if (th.night) img.setTint(0x6070a0);
-    if (th.weather === 'storm') img.setTint(0x8090a0);
-    this.decos.push({ img, k: high ? 2.1 : th.lowClouds ? 1.25 : 1.35 });
-  }
-
-  private scrollWorld(dt: number) {
-    const sp = this.scrollSpeed;
-    this.water.tilePositionY -= sp * dt;
-    this.fx.setFoamScroll(sp);
-    this.islandAcc += sp * dt;
-    this.cloudAcc += sp * dt;
-    if (this.islandAcc > 260) {
-      this.islandAcc = 0;
-      this.spawnDeco();
-    }
-    const cloudGap = this.theme.lowClouds ? 110 : 420 / Math.max(0.2, this.theme.cloudRate);
-    if (this.cloudAcc > cloudGap) {
-      this.cloudAcc = 0;
-      if (Math.random() < this.theme.cloudRate) this.spawnCloud();
-    }
-    for (let i = this.decos.length - 1; i >= 0; i--) {
-      const d = this.decos[i];
-      d.img.y += sp * d.k * dt;
-      if (d.img.y > H + 260) {
-        d.img.destroy();
-        this.decos.splice(i, 1);
-      }
-    }
-    if (this.theme.weather === 'storm') {
-      this.lightningT -= dt;
-      if (this.lightningT <= 0) {
-        this.lightningT = 4 + Math.random() * 6;
-        this.fx.screenFlash(0xdde8ff, 0.55, 180);
-        this.time.delayedCall(140, () => this.fx.screenFlash(0xdde8ff, 0.35, 260));
-        this.time.delayedCall(400, () => Sound.sfx('thunder'));
-      }
-    }
-  }
-
-  private setupWeather() {
-    const w = this.theme.weather;
-    if (w === 'rain' || w === 'storm') {
-      this.add
-        .particles(0, 0, 'rain', {
-          x: { min: -60, max: W + 60 },
-          y: -40,
-          speedY: { min: 900, max: 1150 },
-          speedX: { min: -140, max: -110 },
-          rotate: 7,
-          lifespan: 1000,
-          frequency: w === 'storm' ? 8 : 16,
-          quantity: 2,
-          alpha: { start: 0.55, end: 0.25 },
-          scaleY: { min: 0.6, max: 1.2 },
-        })
-        .setDepth(D.weather);
-    } else if (w === 'snow') {
-      this.add
-        .particles(0, 0, 'flake', {
-          x: { min: -20, max: W + 20 },
-          y: -20,
-          speedY: { min: 110, max: 220 },
-          speedX: { min: -40, max: 40 },
-          lifespan: 6000,
-          frequency: 40,
-          scale: { min: 0.3, max: 1 },
-          alpha: { min: 0.4, max: 0.9 },
-        })
-        .setDepth(D.weather);
-    } else if (w === 'ash') {
-      this.add
-        .particles(0, 0, 'flake', {
-          x: { min: -20, max: W + 20 },
-          y: -20,
-          speedY: { min: 90, max: 180 },
-          speedX: { min: -30, max: 30 },
-          lifespan: 6000,
-          frequency: 60,
-          scale: { min: 0.2, max: 0.6 },
-          alpha: { start: 0.9, end: 0.2 },
-          tint: [0xff7a30, 0xffb040, 0x777777],
-          blendMode: 'ADD',
-        })
-        .setDepth(D.weather);
-    }
-  }
-
   // ================================================================ phases
   private setPhase(p: Phase) {
     this.phase = p;
@@ -386,7 +271,7 @@ export class GameScene extends Phaser.Scene {
     pl.y = 640;
     pl.setAlt(0);
     const loop = loopOf(run.stage);
-    this.hud.banner(`STAGE ${run.stage}`, `${this.theme.ko} — ${this.theme.name}${loop > 1 ? `  (LOOP ${loop})` : ''}`, '#9fd8ff', 2200);
+    this.hud.banner(`STAGE ${run.stage}`, `${themeName(this.theme)}${loop > 1 ? `  (${t('loop', loop)})` : ''}`, '#9fd8ff', 2200);
     Sound.engineStart();
   }
 
@@ -397,19 +282,19 @@ export class GameScene extends Phaser.Scene {
         const c = this.carrier!;
         const T0 = 2.2;
         const T1 = 2.6;
-        const t = this.phaseT;
+        const pt = this.phaseT;
         this.carrierWake(c);
-        if (t < T0) {
-          Sound.engineThrottle((t / T0) * 0.45);
-          pl.x = W / 2 - 8 + Math.sin(t * 60) * 0.4;
+        if (pt < T0) {
+          Sound.engineThrottle((pt / T0) * 0.45);
+          pl.x = W / 2 - 8 + Math.sin(pt * 60) * 0.4;
           if (Math.random() < 0.3) this.fx.smokePuff(pl.x + Phaser.Math.Between(-12, 12), pl.y + 26, 1);
-        } else if (t < T0 + T1) {
+        } else if (pt < T0 + T1) {
           if (this.sub === '') {
             this.sub = 'roll';
             Sound.sfx('launch');
             this.fx.smokePuff(pl.x, pl.y + 20, 6);
           }
-          const p = (t - T0) / T1;
+          const p = (pt - T0) / T1;
           const e = p * p;
           const prev = c.y;
           pl.x = W / 2 - 8;
@@ -429,12 +314,16 @@ export class GameScene extends Phaser.Scene {
           if (c.y - 340 > H) {
             c.destroy();
             this.carrier = null;
+            this.carrierGlow.forEach((g) => g.destroy());
+            this.carrierGlow = [];
             Sound.engineStop();
             pl.setAlt(1);
             pl.control = true;
             this.director = new Director(this, run.stage);
+            this.world.scheduleLand(this.director.duration, 140);
             this.setPhase('combat');
-            this.hud.banner('ENGAGE!', '교전 개시', '#ffe060', 1000);
+            Sound.ambience(true);
+            this.hud.banner('ENGAGE!', t('engage'), '#ffe060', 1000);
           }
         }
         break;
@@ -458,7 +347,20 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private carrierGlow: Phaser.GameObjects.Image[] = [];
+
   private carrierWake(c: Phaser.GameObjects.Image) {
+    if (this.world.space) {
+      // space carrier: main engine plumes at the stern
+      if (!this.carrierGlow.length || !this.carrierGlow[0].active) {
+        this.carrierGlow = [-40, 0, 40].map((dx) =>
+          this.add.image(c.x + dx, c.y + 350, 'flash').setDepth(D.carrier - 0.1).setBlendMode(Phaser.BlendModes.ADD).setTint(0x40c8ff).setData('dx', dx),
+        );
+      }
+      for (const g of this.carrierGlow) g.setPosition(c.x + (g.getData('dx') as number), c.y + 352).setScale(0.55 + Math.random() * 0.12, 0.9 + Math.random() * 0.25);
+      if (Math.random() < 0.5) this.fx.spark(c.x + Phaser.Math.Between(-50, 50), c.y + 360, 1);
+      return;
+    }
     if (Math.random() < 0.7) this.fx.wake(c.x + Phaser.Math.Between(-80, 80), c.y + 330, 1);
     if (Math.random() < 0.4) this.fx.wake(c.x + (Math.random() < 0.5 ? -82 : 82), c.y + Phaser.Math.Between(-300, 300), 1);
   }
@@ -468,7 +370,7 @@ export class GameScene extends Phaser.Scene {
     this.setPhase('warning');
     Sound.stopMusic(0.5);
     Sound.sfx('warning');
-    this.hud.banner('WARNING', `${ERAS[run.era].bossNames[this.theme.boss]} 접근 중`, '#ff3030', 2600);
+    this.hud.banner('WARNING', t('approaching', ERAS[run.era].bossNames[this.theme.boss]), '#ff3030', 2600);
     const bars = [80, H - 80].map((y) =>
       this.add.rectangle(W / 2, y, W, 26, 0xff2020, 0.35).setDepth(D.banner - 1),
     );
@@ -479,7 +381,7 @@ export class GameScene extends Phaser.Scene {
     this.setPhase('boss');
     this.boss = new Boss(this, this.theme.boss, run.stage);
     this.hud.setBoss(this.boss.name);
-    Sound.music(run.stage, run.era, 'boss');
+    this.hud.nowPlaying(Sound.music('boss', BOSS_STYLES[this.boss.kind], run.stage, run.era));
   }
 
   bossDefeated(boss: Boss) {
@@ -507,13 +409,14 @@ export class GameScene extends Phaser.Scene {
       for (let i = 0; i < 10; i++) this.spawnItem('medal', core.x + Phaser.Math.Between(-80, 80), core.y + Phaser.Math.Between(-50, 50));
     });
     this.time.delayedCall(3300, () => {
-      Sound.music(run.stage, run.era, 'clear');
-      this.hud.banner('MISSION COMPLETE', '모함으로 귀환합니다', '#60ff90', 2400);
+      Sound.music('clear', MISC_STYLES.clear, run.stage, run.era, false);
+      this.hud.banner('MISSION COMPLETE', t('missionSub'), '#60ff90', 2400);
     });
     this.time.delayedCall(5600, () => this.startLanding());
   }
 
   private startLanding() {
+    Sound.ambience(false);
     this.setPhase('landing');
     this.sub = 'approach';
     this.player.control = false;
@@ -568,7 +471,7 @@ export class GameScene extends Phaser.Scene {
         this.sub = 'stopped';
         this.subT = 0;
         Sound.engineStop();
-        this.hud.banner('LANDED', '착함 성공', '#9fd8ff', 1200);
+        this.hud.banner('LANDED', t('landedSub'), '#9fd8ff', 1200);
       }
     } else if (this.sub === 'stopped') {
       this.scrollSpeed = 30;
@@ -589,17 +492,24 @@ export class GameScene extends Phaser.Scene {
     const credits = Math.floor(run.stageScore / 40) + 250 * run.stage;
     run.credits += credits;
     prefs.setHi(run.era, run.score);
+    if (run.stage % 10 === 0) {
+      run.lives++;
+      this.time.delayedCall(2400, () => {
+        Sound.sfx('oneup');
+        this.hud.banner('EXTEND!', t('extend'), '#ff60c0', 1600);
+      });
+    }
 
     const add = this.add;
     const bg = add.rectangle(W / 2, H / 2, W - 40, 380, 0x05101c, 0.86).setStrokeStyle(2, 0x6ab0ff, 0.8).setDepth(D.banner);
     this.resultPanel.push(bg);
     const lines: [string, string][] = [
-      ['격추 수', `${kills}`],
-      ['스테이지 점수', run.stageScore.toLocaleString()],
-      ['클리어 보너스', `+${clearBonus.toLocaleString()}`],
-      ['무피격 보너스', perfect ? `+${perfect.toLocaleString()}` : '—'],
-      ['획득 크레딧', `+${credits.toLocaleString()} CR`],
-      ['총 점수', run.score.toLocaleString()],
+      [t('rKills'), `${kills}`],
+      [t('rStage'), run.stageScore.toLocaleString()],
+      [t('rClear'), `+${clearBonus.toLocaleString()}`],
+      [t('rPerfect'), perfect ? `+${perfect.toLocaleString()}` : '—'],
+      [t('rCredits'), `+${credits.toLocaleString()} CR`],
+      [t('rTotal'), run.score.toLocaleString()],
     ];
     const title = add
       .text(W / 2, H / 2 - 160, `STAGE ${run.stage} CLEAR`, { fontFamily: FONT, fontSize: '30px', color: '#60ff90', stroke: '#000', strokeThickness: 5 })
@@ -610,7 +520,7 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(300 + i * 280, () => {
         Sound.sfx('tick');
         const y = H / 2 - 100 + i * 42;
-        const a = add.text(50, y, k, { fontFamily: FONT_KR, fontSize: '19px', color: '#cfe6ff' }).setDepth(D.banner);
+        const a = add.text(50, y, k, { fontFamily: fontLoc(), fontSize: '19px', color: '#cfe6ff' }).setDepth(D.banner);
         const b = add
           .text(W - 50, y, v, { fontFamily: FONT, fontSize: '20px', color: i === 4 ? '#ffd040' : '#ffffff' })
           .setOrigin(1, 0)
@@ -621,7 +531,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(300 + lines.length * 280 + 300, () => {
       this.resultReady = true;
       const tip = add
-        .text(W / 2, H / 2 + 165, this.sys.game.device.input.touch ? '터치하여 격납고로' : 'ENTER — 격납고로', { fontFamily: FONT_KR, fontSize: '17px', color: '#ffffff' })
+        .text(W / 2, H / 2 + 165, this.sys.game.device.input.touch ? t('rTapHangar') : t('rEnterHangar'), { fontFamily: fontLoc(), fontSize: '17px', color: '#ffffff' })
         .setOrigin(0.5)
         .setDepth(D.banner);
       this.tweens.add({ targets: tip, alpha: 0.3, yoyo: true, repeat: -1, duration: 500 });
@@ -660,11 +570,11 @@ export class GameScene extends Phaser.Scene {
       if (!e.shadow) e.shadow = this.add.image(0, 0, 'px');
       e.shadow.setTexture(tk(def.tex) + '_sh').setDepth(D.shadow).setVisible(true).setScale(0.85);
     } else e.shadow?.setVisible(false);
-    const mounts = kind === 'gunboat' ? [-6] : kind === 'destroyer' ? [-49, 49] : [];
+    const mounts = kind === 'gunboat' || kind === 'tank' ? [-6] : kind === 'destroyer' ? [-49, 49] : kind === 'flak' ? [0] : [];
     while (e.turrets.length < mounts.length) e.turrets.push({ img: this.add.image(0, 0, tk('turret')), ox: 0, oy: 0 });
     e.turrets.forEach((tm, i) => {
       const on = i < mounts.length;
-      tm.img.setVisible(on).setActive(on).setTexture(tk('turret')).setDepth(D.ground + 1);
+      tm.img.setVisible(on).setActive(on).setTexture(tk(kind === 'flak' ? 'turret_big' : 'turret')).setDepth(D.ground + 1);
       tm.oy = on ? mounts[i] : 0;
     });
     return e;
@@ -720,6 +630,10 @@ export class GameScene extends Phaser.Scene {
         ];
       case 'gunboat':
         return [(e) => e.turrets[0] && this.fan(e.turrets[0].img.x, e.turrets[0].img.y, 1, 0, 200 * bs, 'eb_orb'), 1.9];
+      case 'tank':
+        return [(e) => e.turrets[0] && this.fan(e.turrets[0].img.x, e.turrets[0].img.y, 1, 0, 190 * bs, 'eb_orb'), 2.2];
+      case 'flak':
+        return [(e) => this.fan(e.x, e.y, 3 + ex, 26, 230 * bs, 'eb_needle'), 1.7];
       case 'destroyer':
         return [
           (e) => {
@@ -787,7 +701,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   supplyDrop() {
-    this.hud.banner('SUPPLY DROP', '아군 보급기 도착', '#60c0ff', 1300);
+    this.hud.banner('SUPPLY DROP', t('supply'), '#60c0ff', 1300);
     const x = Phaser.Math.Between(120, W - 120);
     const img = this.add.image(x, H + 80, tk('transport')).setDepth(D.flyover).setScale(0.8);
     const sh = this.add.image(x, H + 80, tk('transport') + '_sh').setDepth(D.shadow).setScale(0.7);
@@ -873,7 +787,7 @@ export class GameScene extends Phaser.Scene {
         tm.img.setPosition(e.x + tm.ox, e.y + tm.oy);
         tm.img.rotation = Phaser.Math.Angle.Between(tm.img.x, tm.img.y, pl.x, pl.y) + Math.PI / 2;
       }
-      if (!e.air && !e.owner && Math.random() < 0.25) this.fx.wake(e.x + Phaser.Math.Between(-e.hw, e.hw), e.y - e.hh, 1);
+      if (!e.air && !e.owner && Math.random() < 0.25 && !this.world.isLandAt(e.y)) this.fx.wake(e.x + Phaser.Math.Between(-e.hw, e.hw), e.y - e.hh, 1);
       if (e.hp < e.maxHp * 0.4 && e.maxHp > 8 && Math.random() < 0.25) this.fx.smokePuff(e.x + Phaser.Math.Between(-e.hw, e.hw) * 0.5, e.y, 1);
 
       if (firing && e.fire) {
@@ -1110,10 +1024,11 @@ export class GameScene extends Phaser.Scene {
         break;
       case 'bomber':
         this.spawnItem(pick(['P', 'B', 'R', 'S']), e.x, e.y);
-        if (r < 0.04) this.spawnItem('1UP', e.x + 30, e.y);
         break;
       case 'gunboat':
       case 'destroyer':
+      case 'tank':
+      case 'flak':
         if (r < 0.22) this.spawnItem(pick(['P', 'R', 'B', 'medal']), e.x, e.y);
         break;
       case 'part':
@@ -1172,9 +1087,10 @@ export class GameScene extends Phaser.Scene {
     this.fx.explode(pl.x, pl.y, 'l');
     this.clearEnemyShots(false);
     run.lives--;
+    this.hud.update();
     run.wingmen = 0;
     pl.syncWingmen();
-    if (run.lives < 0) {
+    if (run.lives <= 0) {
       this.time.delayedCall(2200, () => {
         this.setPhase('over');
         prefs.setHi(run.era, run.score);

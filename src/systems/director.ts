@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { W, H } from '../data/config';
-import { themeFor } from '../data/themes';
+import { themeFor, THEMES } from '../data/themes';
 import { Squad, type Behavior, type Enemy } from '../objects/entities';
+import { t } from '../data/i18n';
 import type { GameScene } from '../scenes/GameScene';
 
 const HALF_PI = Math.PI / 2;
@@ -115,7 +116,8 @@ export class Director {
     const r = rng(stage * 1013 + 17);
     this.duration = 58 + Math.min(stage, 12) * 3;
     const waves = this.waves();
-    const lvl = ((stage - 1) % 12) + 1 + Math.floor((stage - 1) / 12) * 6;
+    const N = THEMES.length;
+    const lvl = Math.min(12, ((stage - 1) % N) + 1) + Math.floor((stage - 1) / N) * 6;
     const avail = waves.filter((w) => w.min <= lvl);
     const gap = Math.max(0.9, 3.0 - stage * 0.14);
 
@@ -172,6 +174,7 @@ export class Director {
   // ------------------------------------------------------------ waves
   private waves(): Wave[] {
     const s = this.s;
+    const theme = themeFor(this.stage);
     const rx = (m = 60) => Phaser.Math.Between(m, W - m);
     return [
       {
@@ -230,6 +233,7 @@ export class Director {
       {
         id: 'gunboats', min: 1, weight: 1.5, cost: 1,
         run: () => {
+          if (s.world.isLandAt(-80)) return this.landWave(false);
           const n = Phaser.Math.Between(2, 3);
           for (let i = 0; i < n; i++) s.spawnEnemy('gunboat', 70 + Math.random() * (W - 140), -60 - i * 110, ground(s, 0, -20));
         },
@@ -266,6 +270,7 @@ export class Director {
       {
         id: 'destroyer', min: 3, weight: 1.2, cost: 1.8,
         run: () => {
+          if (s.world.isLandAt(-80)) return this.landWave(true);
           const d = s.spawnEnemy('destroyer', rx(90), -110, ground(s, 0, -25));
           d.drop = Math.random() < 0.4 ? 'S' : null;
           s.spawnEnemy('gunboat', rx(), -260, ground(s, 0, -10));
@@ -275,6 +280,13 @@ export class Director {
         id: 'kamikaze', min: 4, weight: 1.2, cost: 1,
         run: () => {
           for (let i = 0; i < 4; i++) s.spawnEnemy('kamikaze', 70 + i * 113, -30 - (i % 2) * 40, dive(s, 110 + (i % 2) * 40, 420));
+        },
+      },
+      {
+        id: 'landStrike', min: 1, weight: theme.land ? 3 : 0, cost: 1.2,
+        run: () => {
+          if (s.world.isLandAt(-80)) this.landWave(Math.random() < 0.4);
+          else for (let i = 0; i < 5; i++) s.spawnEnemy('fighter', 60 + i * 90, -30 - (i % 2) * 40, straight(0, 200));
         },
       },
       {
@@ -292,10 +304,26 @@ export class Director {
     ];
   }
 
+  /** Ground forces over land: tank columns and flak emplacements. */
+  private landWave(heavy: boolean) {
+    const s = this.s;
+    if (heavy) {
+      for (let i = 0; i < 2; i++) s.spawnEnemy('flak', 90 + Math.random() * (W - 180), -60 - i * 160, ground(s));
+      s.spawnEnemy('tank', Phaser.Math.Between(60, W - 60), -80, ground(s, 0, -25));
+    } else {
+      const x = Phaser.Math.Between(70, W - 70);
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      for (let i = 0; i < 3; i++) {
+        const e = s.spawnEnemy('tank', x + i * 26 * dir, -50 - i * 70, ground(s, dir * 18, -30));
+        e.rotation = dir * 0.25;
+      }
+    }
+  }
+
   // ------------------------------------------------------------ events
   private midBoss() {
     const s = this.s;
-    s.hud.banner('MID BOSS', '중간 보스 출현', '#ff7040', 1600);
+    s.hud.banner('MID BOSS', t('midBoss'), '#ff7040', 1600);
     const e: Enemy = s.spawnEnemy('bomber', W / 2, -90, hover(170, 13, 90));
     e.hp = e.maxHp = e.hp * 4;
     e.score *= 4;
@@ -307,7 +335,7 @@ export class Director {
 
   private ambush() {
     const s = this.s;
-    s.hud.banner('AMBUSH!', '후방에서 적기 접근', '#ff4060', 1400);
+    s.hud.banner('AMBUSH!', t('ambush'), '#ff4060', 1400);
     for (let i = 0; i < 6; i++) {
       const x = 60 + i * 72;
       const e = s.spawnEnemy('fighter', x, H + 40 + (i % 2) * 60, rise(x, 300));
@@ -317,7 +345,7 @@ export class Director {
 
   private goldSquadron() {
     const s = this.s;
-    s.hud.banner('GOLD SQUADRON', '격추 시 훈장 획득', '#ffd040', 1300);
+    s.hud.banner('GOLD SQUADRON', t('gold'), '#ffd040', 1300);
     for (let i = 0; i < 8; i++) {
       const left = i % 2 === 0;
       const e = s.spawnEnemy('red', left ? 80 : W - 80, -30 - Math.floor(i / 2) * 60, heading(HALF_PI, 240, left ? -0.9 : 0.9, 0.4, 2.4));
@@ -328,7 +356,7 @@ export class Director {
 
   private kamikazeRush() {
     const s = this.s;
-    s.hud.banner('SUICIDE RUSH', '자폭기 돌격', '#ff4060', 1300);
+    s.hud.banner('SUICIDE RUSH', t('rush'), '#ff4060', 1300);
     for (let i = 0; i < 8; i++) {
       s.time.delayedCall(i * 220, () => {
         s.spawnEnemy('kamikaze', Phaser.Math.Between(40, W - 40), -30, dive(s, Phaser.Math.Between(80, 180), 480));

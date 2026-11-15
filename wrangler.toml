@@ -1,3 +1,8 @@
 name = "steel-wings"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "steel-wings-db"
+database_id = "62f47f76-d757-40e6-a4da-6fcec6e198c5"

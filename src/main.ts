@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { W, H } from './data/config';
 import { run } from './data/state';
+import { getLang } from './data/i18n';
 import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
 import { GameScene } from './scenes/GameScene';
@@ -17,6 +18,7 @@ function boot() {
     backgroundColor: '#05101c',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     input: { activePointers: 4, gamepad: true },
+    dom: { createContainer: true },
     render: { antialias: true, powerPreference: 'high-performance' },
     fps: { target: 60 },
     scene: [BootScene, TitleScene, GameScene, HangarScene, GameOverScene, PauseScene],
@@ -26,7 +28,10 @@ function boot() {
 
 // Wait (briefly) for web fonts so canvas text and procedural item labels use them.
 const fonts = document.fonts
-  ? Promise.all([document.fonts.load('20px "Black Ops One"'), document.fonts.load('20px "Black Han Sans"')])
+  ? Promise.all([
+      document.fonts.load('20px "Black Ops One"'),
+      getLang() === 'ja' ? document.fonts.load('20px "Dela Gothic One"', 'あ日本') : document.fonts.load('20px "Black Han Sans"', '한글'),
+    ])
   : Promise.resolve();
 Promise.race([fonts, new Promise((r) => setTimeout(r, 2500))])
   .catch(() => undefined)

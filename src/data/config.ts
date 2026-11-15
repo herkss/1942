@@ -1,7 +1,6 @@
 export const W = 480;
 export const H = 800;
 export const FONT = '"Black Ops One", "Black Han Sans", "Malgun Gothic", sans-serif';
-export const FONT_KR = '"Black Han Sans", "Black Ops One", "Malgun Gothic", sans-serif';
 
 /** Depth layers */
 export const D = {

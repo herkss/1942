@@ -1,11 +1,12 @@
 import type { Era } from '../data/config';
+import type { Style } from './styles';
 
 /**
  * Fully synthesized audio: Web Audio SFX + a procedural step-sequencer that
  * composes a different track for each stage / era / mood.
  */
 
-export type Mood = 'title' | 'stage' | 'boss' | 'clear' | 'gameover';
+export type Mood = 'title' | 'stage' | 'boss' | 'clear' | 'gameover' | 'hangar';
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -21,50 +22,38 @@ function rng(seed: number) {
 }
 
 interface Song {
+  st: Style;
   bpm: number;
   key: number;
-  scale: number[];
-  chords: number[]; // scale degree per bar
-  melody: (number | null)[]; // scale index per 16th step
+  chords: number[];
+  melody: (number | null)[];
   lens: number[];
-  bass: string;
-  kick: string;
-  snare: string;
-  hat: string;
-  arp: boolean;
-  lead: OscillatorType;
   loop: boolean;
   bars: number;
+  arp: string | undefined;
+  delay: number;
+  dist: number;
+  lead: OscillatorType;
+  era: Era;
+  pad: OscillatorType | undefined;
+  padVol: number;
+  swing: number;
 }
 
-const MINOR = [0, 2, 3, 5, 7, 8, 10];
-const MAJOR = [0, 2, 4, 5, 7, 9, 11];
-
-function makeSong(seed: number, era: Era, mood: Mood): Song {
-  const r = rng(seed * 7919 + era.length * 31 + mood.length);
+/** Compose a song from a style; the seed varies progression and melody. */
+function makeSong(st: Style, seed: number, era: Era, loop: boolean): Song {
+  const r = rng(seed * 7919 + st.bpm * 13 + st.key);
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
-  const major = mood === 'clear';
-  const scale = major ? MAJOR : MINOR;
-  const progs = major
-    ? [[0, 3, 4, 0]]
-    : mood === 'boss'
-      ? [[0, 5, 0, 4], [0, 1, 0, 6], [0, 5, 6, 4]]
-      : [[0, 5, 6, 0], [0, 3, 5, 4], [0, 5, 3, 4], [0, 6, 5, 6], [0, 2, 5, 4]];
-  const prog = pick(progs);
-  const bars = mood === 'clear' || mood === 'gameover' ? 4 : 8;
+  const prog = pick(st.progs);
+  const bars = loop ? 8 : 4;
   const chords: number[] = [];
   for (let i = 0; i < bars; i++) chords.push(prog[i % prog.length]);
-  if (mood === 'gameover') chords.splice(0, 4, 0, 5, 3, 0);
 
-  const rhythms =
-    mood === 'boss'
-      ? ['x.xx.xx.x.xx.x.x', 'x..x..x.x..x.xx.', 'xxx.xxx.x.x.xxx.']
-      : ['x..x..x.x.x.x...', 'x.x.x...x..xx...', 'x...x.x.x...x.x.', 'x..x..x...x.x.x.', 'x.x.x.x.x..x....'];
   const melody: (number | null)[] = [];
   let prev = 7;
   const motif: (number | null)[][] = [];
   for (let b = 0; b < Math.min(4, bars); b++) {
-    const rh = pick(rhythms);
+    const rh = pick(st.rhythms);
     const bar: (number | null)[] = [];
     const ch = chords[b];
     for (let s = 0; s < 16; s++) {
@@ -77,9 +66,7 @@ function makeSong(seed: number, era: Era, mood: Mood): Song {
         const tones = [ch, ch + 2, ch + 4, ch + 7].filter((t) => t >= 2 && t <= 13);
         n = tones.reduce((best, t) => (Math.abs(t - prev) < Math.abs(best - prev) ? t : best), tones[0] ?? ch + 7);
         if (r() < 0.3) n = pick(tones.length ? tones : [ch + 7]);
-      } else {
-        n = prev + Math.round((r() - 0.5) * 4);
-      }
+      } else n = prev + Math.round((r() - 0.5) * 4);
       n = Math.max(2, Math.min(13, n));
       bar.push(n);
       prev = n;
@@ -89,11 +76,9 @@ function makeSong(seed: number, era: Era, mood: Mood): Song {
   for (let b = 0; b < bars; b++) {
     const src = motif[b % motif.length].slice();
     if (b === bars - 1) {
-      // cadence back to tonic
       for (let s = 8; s < 16; s++) src[s] = null;
       src[8] = 7;
     } else if (b >= 4 && r() < 0.5) {
-      // variation: transpose a phrase up a third
       for (let s = 0; s < 16; s++) if (src[s] != null) src[s] = Math.min(14, (src[s] as number) + 2);
     }
     melody.push(...src);
@@ -105,60 +90,45 @@ function makeSong(seed: number, era: Era, mood: Mood): Song {
     return l;
   });
 
-  const baseBpm = { title: 112, stage: 138, boss: 156, clear: 132, gameover: 84 }[mood];
-  const bpm = baseBpm + (mood === 'stage' ? Math.min(24, seed * 2) : 0) + (era === 'future' ? 6 : 0);
-  const key = 45 + ((seed * 5) % 7);
-
-  let kick = 'x.......x.......';
-  let snare = '....x.......x...';
-  let hat = 'x.x.x.x.x.x.x.x.';
-  let bass = 'x.x.x.x.x.x.x.x.';
+  // era flavouring:
+  //  WWII   -> brass section lead, string pads, march snare fills, timpani, light swing
+  //  Modern -> distorted power-chord bass, driving rock kit, gritty saw lead
+  //  Future -> synthwave arps, long space echo, pumping pads, gliding lead
+  let arp = st.arp;
+  let delay = st.delay ?? 0;
+  let dist = st.dist ?? 0;
+  let lead = st.lead;
+  let pad = st.pad;
+  let padVol = st.padVol ?? 0.03;
+  let swing = st.swing ?? 0;
   if (era === 'ww2') {
-    snare = '....x..x....x.xx';
-    hat = 'x...x...x...x...';
-    bass = 'x...x.x.x...x.x.';
+    lead = lead === 'sine' || lead === 'triangle' ? lead : 'square';
+    arp = undefined;
+    dist = 0;
+    pad = pad ?? 'sawtooth';
+    padVol = Math.max(padVol, 0.035);
+    swing = Math.max(swing, 0.05);
+  } else if (era === 'modern') {
+    dist = Math.max(dist, 5);
+    if (lead === 'square') lead = 'sawtooth';
+  } else {
+    arp = arp ?? '0124012401240124';
+    delay = Math.max(delay, 0.32);
+    pad = 'sawtooth';
+    padVol = Math.max(padVol, 0.04);
+    dist = Math.min(dist, 2);
   }
-  if (era === 'modern') {
-    kick = 'x.....x.x.......';
-    bass = 'xxx.xxx.xxx.xxx.';
+  return { st, bpm: st.bpm + (era === 'future' ? 4 : era === 'ww2' ? -6 : 0), key: st.key + ((seed * 2) % 3) - 1, chords, melody, lens, loop, bars, arp, delay, dist, lead, era, pad, padVol, swing };
+}
+
+function distCurve(k: number) {
+  const n = 1024;
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    c[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
   }
-  if (era === 'future') {
-    kick = 'x...x...x...x...';
-    hat = '..x...x...x...x.';
-    bass = 'x.xxx.xxx.xxx.xx';
-  }
-  if (mood === 'boss') {
-    kick = 'x..x..x.x..x..x.';
-    snare = '....x.......x..x';
-    hat = 'xxxxxxxxxxxxxxxx';
-    bass = 'xxxxxxxxxxxxxxxx';
-  }
-  if (mood === 'title') {
-    kick = 'x.........x.....';
-    hat = '..x...x...x...x.';
-  }
-  if (mood === 'gameover') {
-    kick = 'x...............';
-    snare = '................';
-    hat = '................';
-    bass = 'x.......x.......';
-  }
-  return {
-    bpm,
-    key,
-    scale,
-    chords,
-    melody,
-    lens,
-    bass,
-    kick,
-    snare,
-    hat,
-    arp: era === 'future' || mood === 'boss' || (era === 'modern' && mood === 'stage'),
-    lead: era === 'ww2' ? 'square' : era === 'modern' ? 'sawtooth' : 'square',
-    loop: mood !== 'clear' && mood !== 'gameover',
-    bars,
-  };
+  return c;
 }
 
 class Sequencer {
@@ -166,6 +136,9 @@ class Sequencer {
   private next = 0;
   private timer = 0;
   private bus: GainNode;
+  private send: GainNode | null = null;
+  private shaper: WaveShaperNode | null = null;
+  private padBus: GainNode;
   constructor(
     private ctx: AudioContext,
     out: AudioNode,
@@ -175,6 +148,30 @@ class Sequencer {
     this.bus = ctx.createGain();
     this.bus.gain.value = 1;
     this.bus.connect(out);
+    this.padBus = ctx.createGain();
+    this.padBus.connect(this.bus);
+    const dt16 = 60 / song.bpm / 4;
+    if (song.delay > 0) {
+      const d = ctx.createDelay(2);
+      d.delayTime.value = dt16 * 3;
+      const fb = ctx.createGain();
+      fb.gain.value = song.delay;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2600;
+      this.send = ctx.createGain();
+      this.send.gain.value = 0.6;
+      this.send.connect(d);
+      d.connect(lp).connect(fb).connect(d);
+      lp.connect(this.bus);
+    }
+    if (song.dist > 0) {
+      this.shaper = ctx.createWaveShaper();
+      this.shaper.curve = distCurve(song.dist);
+      const post = ctx.createGain();
+      post.gain.value = 0.55;
+      this.shaper.connect(post).connect(this.bus);
+    }
     this.next = ctx.currentTime + 0.08;
     this.timer = window.setInterval(() => this.tick(), 25);
   }
@@ -195,38 +192,61 @@ class Sequencer {
         clearInterval(this.timer);
         return;
       }
-      this.play(this.step % total, this.next, dt);
+      const sw = this.step % 2 === 1 ? s.swing * dt : 0;
+      this.play(this.step % total, this.next + sw, dt);
       this.next += dt;
       this.step++;
     }
   }
   private note(deg: number, oct: number) {
-    const s = this.song;
+    const sc = this.song.st.scale;
     const o = Math.floor(deg / 7);
     const d = ((deg % 7) + 7) % 7;
-    return s.key + oct * 12 + o * 12 + s.scale[d];
+    return this.song.key + oct * 12 + o * 12 + sc[d];
   }
   private play(step: number, t: number, dt: number) {
     const s = this.song;
+    const st = s.st;
     const bar = Math.floor(step / 16);
     const i = step % 16;
     const ch = s.chords[bar];
-    if (s.kick[i] === 'x') this.kick(t);
-    if (s.snare[i] === 'x') this.snare(t);
-    if (s.hat[i] === 'x') this.hat(t, i % 4 === 0 ? 0.06 : 0.035);
-    if (s.bass[i] === 'x') {
-      const oct = i % 8 === 4 && s.bass !== 'xxxxxxxxxxxxxxxx' ? 1 : 0;
-      this.bassNote(mtof(this.note(ch, -1 + oct)), t, dt * 0.9);
+    if (st.kick[i] === 'x' || (s.era === 'modern' && i === 10 && st.kick[8] === 'x')) {
+      this.kick(t);
+      if (s.era === 'future') {
+        // sidechain pump on pads
+        const g = this.padBus.gain;
+        g.cancelScheduledValues(t);
+        g.setValueAtTime(0.25, t);
+        g.linearRampToValueAtTime(1, t + dt * 3);
+      }
     }
-    if (i === 0) {
-      for (const k of [0, 2, 4]) this.pad(mtof(this.note(ch + k, 0)), t, dt * 16);
+    if (st.snare[i] === 'x') this.snare(t, st.snare.split('x').length > 6 ? 0.22 : 0.35);
+    // WWII march fill at the end of each 4-bar phrase
+    if (s.era === 'ww2' && bar % 4 === 3 && i >= 12) this.snare(t, 0.12 + (i - 12) * 0.05);
+    if (s.era === 'modern' && st.hat[i] !== 'x' && i % 2 === 0) this.hat(t, 0.025);
+    if (st.hat[i] === 'x') this.hat(t, i % 4 === 0 ? 0.06 : 0.035);
+    if (st.tom && st.tom[i] === 'x') this.tom(t, 110 - (i % 4) * 12);
+    if (st.bass[i] === 'x') {
+      const oct = i % 8 === 4 && !st.bass.startsWith('xxxx') ? 1 : 0;
+      const f = mtof(this.note(ch, -1 + oct));
+      this.bassNote(f, t, dt * 0.9);
+      if (s.era === 'modern') this.bassNote(f * 1.5, t, dt * 0.9, 0.16);
+      if (st.sub > 0 && (i % 4 === 0 || st.bass.startsWith('x.') || oct === 0)) this.subNote(mtof(this.note(ch, -2)), t, dt * (i % 4 === 0 ? 3.6 : 0.95), st.sub);
     }
-    if (s.arp && i % 2 === 0) {
-      const k = [0, 2, 4, 7][(i / 2) % 4];
+    if (i === 0 && s.pad) for (const k of [0, 2, 4]) this.pad(mtof(this.note(ch + k, 0)), t, dt * 16);
+    if (s.arp && s.arp[i] !== '.') {
+      const k = [0, 2, 4, 7, 9][parseInt(s.arp[i], 10) % 5];
       this.arpNote(mtof(this.note(ch + k, 1)), t, dt * 1.5);
     }
+    if (st.bell && st.bell[i] === 'x') this.bellNote(mtof(this.note(ch + [0, 2, 4, 7][(i >> 2) % 4], 3)), t);
     const m = s.melody[step];
-    if (m != null) this.lead(mtof(this.note(m, 1)), t, dt * s.lens[step] * 0.92);
+    if (m != null) {
+      const f = mtof(this.note(m, st.leadOct));
+      const len = st.pluck ?? dt * s.lens[step] * 0.92;
+      this.lead(f, t, len);
+      // WWII brass section: a fifth below doubles the melody
+      if (s.era === 'ww2' && !st.pluck) this.lead(f * 0.667, t, len, 0.45);
+    }
   }
   private env(g: GainNode, t: number, a: number, peak: number, dur: number) {
     g.gain.setValueAtTime(0.0001, t);
@@ -236,112 +256,171 @@ class Sequencer {
   private kick(t: number) {
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    o.frequency.setValueAtTime(140, t);
-    o.frequency.exponentialRampToValueAtTime(38, t + 0.14);
-    this.env(g, t, 0.003, 0.9, 0.22);
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.3);
+    this.env(g, t, 0.002, 1.0, 0.32);
     o.connect(g).connect(this.bus);
     o.start(t);
-    o.stop(t + 0.25);
+    o.stop(t + 0.34);
+    // click transient
+    this.noiseHit(t, 0.012, 0.25, 3000);
   }
-  private noiseHit(t: number, dur: number, vol: number, hp: number) {
+  private noiseHit(t: number, dur: number, vol: number, hp: number, lpf = 0) {
     const src = this.ctx.createBufferSource();
     src.buffer = this.noise;
     const f = this.ctx.createBiquadFilter();
-    f.type = 'highpass';
-    f.frequency.value = hp;
+    f.type = lpf ? 'lowpass' : 'highpass';
+    f.frequency.value = lpf || hp;
     const g = this.ctx.createGain();
     this.env(g, t, 0.002, vol, dur);
     src.connect(f).connect(g).connect(this.bus);
     src.start(t, Math.random() * 1.5);
     src.stop(t + dur + 0.02);
   }
-  private snare(t: number) {
-    this.noiseHit(t, 0.16, 0.35, 1400);
+  private snare(t: number, vol: number) {
+    this.noiseHit(t, 0.16, vol, 1400);
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     o.type = 'triangle';
     o.frequency.setValueAtTime(220, t);
     o.frequency.exponentialRampToValueAtTime(120, t + 0.08);
-    this.env(g, t, 0.002, 0.25, 0.1);
+    this.env(g, t, 0.002, vol * 0.7, 0.1);
     o.connect(g).connect(this.bus);
     o.start(t);
     o.stop(t + 0.12);
   }
+  private tom(t: number, f: number) {
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.frequency.setValueAtTime(f * 1.6, t);
+    o.frequency.exponentialRampToValueAtTime(f * 0.6, t + 0.25);
+    this.env(g, t, 0.003, 0.55, 0.3);
+    o.connect(g).connect(this.bus);
+    o.start(t);
+    o.stop(t + 0.32);
+    this.noiseHit(t, 0.08, 0.12, 0, 900);
+  }
   private hat(t: number, vol: number) {
     this.noiseHit(t, 0.045, vol * 2.2, 7500);
   }
-  private bassNote(f: number, t: number, dur: number) {
+  private bassNote(f: number, t: number, dur: number, vol = 0.3) {
     const o = this.ctx.createOscillator();
-    o.type = 'sawtooth';
+    o.type = this.song.era === 'modern' ? 'sawtooth' : this.song.st.bassWave;
     o.frequency.value = f;
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.Q.value = 6;
-    lp.frequency.setValueAtTime(1400, t);
-    lp.frequency.exponentialRampToValueAtTime(220, t + dur);
+    lp.Q.value = 7;
+    lp.frequency.setValueAtTime(1600, t);
+    lp.frequency.exponentialRampToValueAtTime(240, t + dur);
     const g = this.ctx.createGain();
-    this.env(g, t, 0.005, 0.32, dur);
-    o.connect(lp).connect(g).connect(this.bus);
+    this.env(g, t, 0.005, vol, dur);
+    o.connect(lp).connect(g);
+    g.connect(this.bus);
+    if (this.shaper) g.connect(this.shaper);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+  /** Deep sine sub-bass an octave under the bassline. */
+  private subNote(f: number, t: number, dur: number, vol: number) {
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.setValueAtTime(vol, t + dur * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.bus);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
   private pad(f: number, t: number, dur: number) {
-    for (const det of [-7, 7]) {
+    const s = this.song;
+    const atk = s.era === 'ww2' ? 0.6 : s.era === 'future' ? 0.05 : 0.3;
+    for (const det of s.era === 'future' ? [-14, 0, 14] : [-7, 7]) {
       const o = this.ctx.createOscillator();
-      o.type = 'sawtooth';
+      o.type = s.pad ?? 'sawtooth';
       o.frequency.value = f;
       o.detune.value = det;
       const lp = this.ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 900;
+      lp.frequency.value = s.era === 'future' ? 1400 : 900;
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.028, t + 0.3);
+      g.gain.linearRampToValueAtTime(s.padVol, t + atk);
       g.gain.linearRampToValueAtTime(0.0001, t + dur);
-      o.connect(lp).connect(g).connect(this.bus);
+      o.connect(lp).connect(g).connect(this.padBus);
       o.start(t);
       o.stop(t + dur + 0.05);
     }
   }
   private arpNote(f: number, t: number, dur: number) {
     const o = this.ctx.createOscillator();
-    o.type = 'square';
+    o.type = this.song.st.arpWave ?? 'square';
     o.frequency.value = f;
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 2400;
     const g = this.ctx.createGain();
-    this.env(g, t, 0.003, 0.05, dur);
+    this.env(g, t, 0.003, 0.045, dur);
     o.connect(lp).connect(g).connect(this.bus);
+    if (this.send) g.connect(this.send);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
-  private lead(f: number, t: number, dur: number) {
+  private bellNote(f: number, t: number) {
+    for (const [mul, v] of [
+      [1, 0.06],
+      [2.76, 0.02],
+    ]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f * mul;
+      const g = this.ctx.createGain();
+      this.env(g, t, 0.002, v, 0.9);
+      o.connect(g).connect(this.bus);
+      if (this.send) g.connect(this.send);
+      o.start(t);
+      o.stop(t + 0.95);
+    }
+  }
+  private lastLead = 0;
+  private lead(f: number, t: number, dur: number, volMul = 1) {
     const s = this.song;
+    const st = s.st;
+    const vol = st.leadVol * volMul;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.11, t + 0.012);
-    g.gain.setValueAtTime(0.11, t + Math.max(0.02, dur - 0.05));
+    g.gain.exponentialRampToValueAtTime(vol, t + (s.era === 'ww2' ? 0.035 : 0.012));
+    if (!st.pluck) g.gain.setValueAtTime(vol, t + Math.max(0.04, dur - 0.05));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = s.lead === 'sawtooth' ? 2600 : 3400;
+    lp.frequency.value = st.leadCut;
     const vib = this.ctx.createOscillator();
     vib.frequency.value = 5.5;
     const vg = this.ctx.createGain();
-    vg.gain.value = f * 0.006;
+    vg.gain.value = st.pluck ? 0 : f * 0.006;
     vib.connect(vg);
     for (const det of [0, s.lead === 'sawtooth' ? 9 : 5]) {
       const o = this.ctx.createOscillator();
       o.type = s.lead;
-      o.frequency.value = f;
+      if (s.era === 'future' && this.lastLead && volMul === 1) {
+        o.frequency.setValueAtTime(this.lastLead, t);
+        o.frequency.exponentialRampToValueAtTime(f, t + 0.05);
+      } else o.frequency.value = f;
       o.detune.value = det;
       vg.connect(o.frequency);
       o.connect(lp);
       o.start(t);
       o.stop(t + dur + 0.03);
     }
-    lp.connect(g).connect(this.bus);
+    if (volMul === 1) this.lastLead = f;
+    lp.connect(g);
+    g.connect(this.bus);
+    if (this.send) g.connect(this.send);
+    if (this.shaper && s.lead === 'sawtooth') g.connect(this.shaper);
     vib.start(t);
     vib.stop(t + dur + 0.03);
   }
@@ -356,8 +435,12 @@ export class Sound {
   private static last: Record<string, number> = {};
   private static seq: Sequencer | null = null;
   private static current = '';
-  private static engine: { o: OscillatorNode; g: GainNode; f: BiquadFilterNode } | null = null;
+  private static engine: { nodes: AudioScheduledSourceNode[]; out: GainNode; set: (v: number) => void } | null = null;
   static muted = false;
+  static era: Era = 'ww2';
+  static setEra(e: Era) {
+    this.era = e;
+  }
 
   static init() {
     if (this.ctx) {
@@ -391,13 +474,15 @@ export class Sound {
     if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.85, this.ctx.currentTime, 0.05);
   }
 
-  static music(seed: number, era: Era, mood: Mood) {
-    if (!this.ctx) return;
-    const id = `${seed}|${era}|${mood}`;
-    if (id === this.current && this.seq) return;
+  /** Play a style-based track. Returns its title. */
+  static music(id: string, style: Style, seed: number, era: Era, loop = true) {
+    if (!this.ctx) return style.title;
+    const key = `${id}|${seed}|${era}`;
+    if (key === this.current && this.seq) return style.title;
     this.seq?.stop();
-    this.current = id;
-    this.seq = new Sequencer(this.ctx, this.musicBus, makeSong(seed, era, mood), this.noise);
+    this.current = key;
+    this.seq = new Sequencer(this.ctx, this.musicBus, makeSong(style, seed, era, loop), this.noise);
+    return style.title;
   }
 
   static stopMusic(fade = 0.6) {
@@ -455,8 +540,18 @@ export class Sound {
     switch (name) {
       case 'shot':
         if (!this.throttle(name, 70)) return;
-        this.tone('square', 1100, 380, 0.05, 0.05);
-        this.hiss(0.04, 0.05, 'highpass', 3000, 2000);
+        if (this.era === 'ww2') {
+          // rattling .50 cal
+          this.hiss(0.05, 0.12, 'bandpass', 1400, 600, 0, 1.5);
+          this.tone('square', 180, 90, 0.04, 0.05);
+        } else if (this.era === 'modern') {
+          // vulcan buzz
+          this.tone('sawtooth', 900, 500, 0.04, 0.04);
+          this.hiss(0.035, 0.08, 'highpass', 2600, 1800);
+        } else {
+          this.tone('square', 1800, 600, 0.06, 0.04);
+          this.tone('sine', 2600, 900, 0.05, 0.03);
+        }
         break;
       case 'shotHeavy':
         if (!this.throttle(name, 90)) return;
@@ -470,7 +565,10 @@ export class Sound {
         break;
       case 'missile':
         if (!this.throttle(name, 120)) return;
-        this.hiss(0.3, 0.09, 'bandpass', 600, 2400, 0, 2);
+        if (this.era === 'future') {
+          this.tone('sine', 400, 1600, 0.25, 0.06);
+          this.tone('triangle', 800, 2400, 0.2, 0.03);
+        } else this.hiss(0.3, 0.09, 'bandpass', this.era === 'ww2' ? 400 : 700, this.era === 'ww2' ? 1400 : 2800, 0, 2);
         break;
       case 'hit':
         if (!this.throttle(name, 40)) return;
@@ -485,6 +583,7 @@ export class Sound {
         if (!this.throttle(name, 45)) return;
         this.hiss(0.35, 0.35, 'lowpass', 2400, 120);
         this.tone('sine', 160, 40, 0.25, 0.3);
+        if (this.era === 'future') this.tone('sawtooth', 1200, 80, 0.3, 0.05);
         break;
       case 'boomM':
         if (!this.throttle(name, 60)) return;
@@ -557,8 +656,22 @@ export class Sound {
         this.hiss(0.9, 0.12, 'bandpass', 2400, 1200, 0.1, 6);
         break;
       case 'launch':
-        this.hiss(1.4, 0.5, 'bandpass', 200, 2200, 0, 1);
-        this.tone('sawtooth', 60, 220, 1.4, 0.1);
+        if (this.era === 'ww2') {
+          // full-throttle prop roar off the deck
+          this.hiss(1.2, 0.35, 'lowpass', 400, 1400, 0, 1);
+          this.tone('sawtooth', 70, 110, 1.2, 0.08);
+        } else if (this.era === 'modern') {
+          // steam catapult shot + afterburner light-off
+          this.hiss(0.25, 0.6, 'highpass', 1500, 4000);
+          this.hiss(1.6, 0.6, 'bandpass', 300, 2600, 0.1, 0.8);
+          this.tone('sine', 40, 30, 1.2, 0.3, 0.1);
+        } else {
+          // mag-rail charge and thruster burn
+          this.tone('sine', 200, 2400, 0.7, 0.08);
+          this.tone('square', 100, 1200, 0.7, 0.03);
+          this.tone('sine', 60, 35, 1.4, 0.35, 0.6);
+          this.hiss(1.2, 0.3, 'bandpass', 2000, 600, 0.6, 2);
+        }
         break;
       case 'tick':
         this.tone('square', 1500, 1500, 0.03, 0.04);
@@ -567,34 +680,229 @@ export class Sound {
   }
 
   /** Continuous engine drone during takeoff / landing. */
+  private static amb: { nodes: AudioScheduledSourceNode[]; g: GainNode } | null = null;
+  /** Low wind + distant engine drone bed while flying. */
+  static ambience(on: boolean) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!on) {
+      if (!this.amb) return;
+      const { nodes, g } = this.amb;
+      g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.4);
+      nodes.forEach((n) => n.stop(ctx.currentTime + 2));
+      this.amb = null;
+      return;
+    }
+    if (this.amb) return;
+    const g = ctx.createGain();
+    g.gain.value = 0.0001;
+    g.gain.setTargetAtTime(1, ctx.currentTime, 0.8);
+    g.connect(this.sfxBus);
+    const era = this.era;
+    const wind = ctx.createBufferSource();
+    wind.buffer = this.noise;
+    wind.loop = true;
+    const wf = ctx.createBiquadFilter();
+    // future: thin high shimmer instead of wind; modern: jet roar band
+    wf.type = era === 'future' ? 'highpass' : era === 'modern' ? 'bandpass' : 'lowpass';
+    wf.frequency.value = era === 'future' ? 6000 : era === 'modern' ? 900 : 380;
+    const wg = ctx.createGain();
+    wg.gain.value = era === 'future' ? 0.012 : era === 'modern' ? 0.06 : 0.07;
+    wind.connect(wf).connect(wg).connect(g);
+    const eng = ctx.createOscillator();
+    eng.type = era === 'future' ? 'sine' : 'sawtooth';
+    eng.frequency.value = era === 'future' ? 48 : era === 'modern' ? 90 : 62;
+    const ef = ctx.createBiquadFilter();
+    ef.type = 'lowpass';
+    ef.frequency.value = era === 'modern' ? 400 : 180;
+    const eg = ctx.createGain();
+    eg.gain.value = era === 'future' ? 0.09 : 0.05;
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    if (era === 'ww2') {
+      // propeller "chop": amplitude modulation
+      lfo.frequency.value = 17;
+      lg.gain.value = 0.03;
+      lfo.connect(lg).connect(eg.gain);
+    } else {
+      lfo.frequency.value = era === 'future' ? 0.15 : 0.3;
+      lg.gain.value = era === 'future' ? 6 : 3;
+      lfo.connect(lg).connect(eng.frequency);
+    }
+    eng.connect(ef).connect(eg).connect(g);
+    const nodes: AudioScheduledSourceNode[] = [wind, eng, lfo];
+    if (era === 'future') {
+      const o2 = ctx.createOscillator();
+      o2.frequency.value = 72.5;
+      const g2 = ctx.createGain();
+      g2.gain.value = 0.05;
+      o2.connect(g2).connect(g);
+      o2.start();
+      nodes.push(o2);
+    } else if (era === 'modern') {
+      const wh = ctx.createOscillator();
+      wh.frequency.value = 2400;
+      const wg2 = ctx.createGain();
+      wg2.gain.value = 0.006;
+      wh.connect(wg2).connect(g);
+      wh.start();
+      nodes.push(wh);
+    }
+    wind.start();
+    eng.start();
+    lfo.start();
+    this.amb = { nodes, g };
+  }
+
+  /**
+   * Carrier deck engine sound, per era:
+   *  WWII   - piston engine + propeller chop (amplitude-modulated sawtooth)
+   *  Modern - jet turbine: spooling whine + broadband roar
+   *  Future - thruster: deep pulsing hum + plasma hiss + rising resonance
+   */
   static engineStart() {
     if (!this.ctx || this.engine) return;
     const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = 45;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.value = 300;
-    const g = ctx.createGain();
-    g.gain.value = 0.0001;
-    g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.5);
-    o.connect(f).connect(g).connect(this.sfxBus);
-    o.start();
-    this.engine = { o, g, f };
+    const now = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.value = 0.0001;
+    out.gain.exponentialRampToValueAtTime(1, now + 0.6);
+    out.connect(this.sfxBus);
+    const nodes: AudioScheduledSourceNode[] = [];
+    const params: { set: (v: number, t: number) => void }[] = [];
+    const osc = (type: OscillatorType, f: number) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      nodes.push(o);
+      return o;
+    };
+    const noise = () => {
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      n.loop = true;
+      nodes.push(n);
+      return n;
+    };
+    if (this.era === 'ww2') {
+      // engine body
+      const body = osc('sawtooth', 38);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 260;
+      const vca = ctx.createGain();
+      vca.gain.value = 0.11;
+      body.connect(lp).connect(vca).connect(out);
+      // propeller chop: LFO on amplitude, rate follows RPM
+      const chop = osc('square', 9);
+      const depth = ctx.createGain();
+      depth.gain.value = 0.07;
+      chop.connect(depth).connect(vca.gain);
+      // exhaust crackle
+      const nz = noise();
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 500;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.05;
+      nz.connect(bp).connect(ng).connect(out);
+      params.push({
+        set: (v, t) => {
+          body.frequency.setTargetAtTime(38 + v * 52, t, 0.15);
+          chop.frequency.setTargetAtTime(9 + v * 34, t, 0.15);
+          lp.frequency.setTargetAtTime(260 + v * 900, t, 0.15);
+          ng.gain.setTargetAtTime(0.04 + v * 0.08, t, 0.15);
+        },
+      });
+    } else if (this.era === 'modern') {
+      // turbine whine
+      const whine = osc('sine', 900);
+      const wg = ctx.createGain();
+      wg.gain.value = 0.025;
+      whine.connect(wg).connect(out);
+      const whine2 = osc('triangle', 1800);
+      const wg2 = ctx.createGain();
+      wg2.gain.value = 0.01;
+      whine2.connect(wg2).connect(out);
+      // jet roar
+      const nz = noise();
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 0.6;
+      bp.frequency.value = 400;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.08;
+      nz.connect(bp).connect(ng).connect(out);
+      // low rumble
+      const rum = osc('sawtooth', 55);
+      const rl = ctx.createBiquadFilter();
+      rl.type = 'lowpass';
+      rl.frequency.value = 140;
+      const rg = ctx.createGain();
+      rg.gain.value = 0.07;
+      rum.connect(rl).connect(rg).connect(out);
+      params.push({
+        set: (v, t) => {
+          whine.frequency.setTargetAtTime(900 + v * 2600, t, 0.35);
+          whine2.frequency.setTargetAtTime(1800 + v * 5000, t, 0.35);
+          bp.frequency.setTargetAtTime(400 + v * 2200, t, 0.3);
+          ng.gain.setTargetAtTime(0.06 + v * 0.22, t, 0.3);
+          rg.gain.setTargetAtTime(0.06 + v * 0.1, t, 0.3);
+        },
+      });
+    } else {
+      // thruster hum (two detuned low sines beating)
+      const h1 = osc('sine', 46);
+      const h2 = osc('sine', 46.7);
+      const hg = ctx.createGain();
+      hg.gain.value = 0.12;
+      h1.connect(hg);
+      h2.connect(hg);
+      hg.connect(out);
+      // pulsing ion drive
+      const pulse = osc('square', 92);
+      const pl = ctx.createBiquadFilter();
+      pl.type = 'lowpass';
+      pl.Q.value = 8;
+      pl.frequency.value = 300;
+      const pg = ctx.createGain();
+      pg.gain.value = 0.03;
+      pulse.connect(pl).connect(pg).connect(out);
+      const lfo = osc('sine', 3);
+      const lg = ctx.createGain();
+      lg.gain.value = 200;
+      lfo.connect(lg).connect(pl.frequency);
+      // plasma hiss
+      const nz = noise();
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 3000;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.015;
+      nz.connect(hp).connect(ng).connect(out);
+      params.push({
+        set: (v, t) => {
+          h1.frequency.setTargetAtTime(46 + v * 30, t, 0.3);
+          h2.frequency.setTargetAtTime(46.7 + v * 31, t, 0.3);
+          pulse.frequency.setTargetAtTime(92 + v * 160, t, 0.3);
+          lfo.frequency.setTargetAtTime(3 + v * 14, t, 0.3);
+          ng.gain.setTargetAtTime(0.015 + v * 0.07, t, 0.3);
+          hp.frequency.setTargetAtTime(3000 - v * 1600, t, 0.3);
+        },
+      });
+    }
+    nodes.forEach((n) => n.start());
+    this.engine = { nodes, out, set: (v) => params.forEach((p) => p.set(v, ctx.currentTime)) };
   }
   static engineThrottle(v: number) {
-    if (!this.engine || !this.ctx) return;
-    const t = this.ctx.currentTime;
-    this.engine.o.frequency.setTargetAtTime(45 + v * 80, t, 0.1);
-    this.engine.f.frequency.setTargetAtTime(300 + v * 1400, t, 0.1);
+    this.engine?.set(Math.max(0, Math.min(1, v)));
   }
   static engineStop() {
     if (!this.engine || !this.ctx) return;
-    const { o, g } = this.engine;
+    const { nodes, out } = this.engine;
     const t = this.ctx.currentTime;
-    g.gain.setTargetAtTime(0.0001, t, 0.25);
-    o.stop(t + 1.2);
+    out.gain.setTargetAtTime(0.0001, t, 0.3);
+    nodes.forEach((n) => n.stop(t + 1.5));
     this.engine = null;
   }
 }
